@@ -1,5 +1,7 @@
 # LLMs.txt Agentic RAG Documentation Agent
 
+![MCPDOC Logo](mcpdoc.png)
+
 A Model Context Protocol (MCP) server that dynamically indexes and queries documentation from any `llms.txt` file. This agent allows you to index multiple documentation sources and ask intelligent questions about them using AI-powered search and retrieval.
 
 ## Features
@@ -228,4 +230,8 @@ Any website that provides an `llms.txt` file can be indexed. Popular examples in
 For issues and questions:
 - Create an issue in the repository
 - Check the troubleshooting section above
-- Verify your MCP configuration matches the examples 
+- Verify your MCP configuration matches the examples
+
+## ROADMAP
+
+![Future Version MCPDOC](future_version_mcpdoc.png) 
