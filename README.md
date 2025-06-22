@@ -21,7 +21,7 @@ A Model Context Protocol (MCP) server that dynamically indexes and queries docum
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone git@github.com:gabinfay/MCPDOC.git
 cd llms_txt_agent
 ```
 
@@ -34,13 +34,6 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 3. Install dependencies:
 ```bash
 pip install -r requirements.txt
-```
-
-4. Set up environment variables:
-```bash
-# Create .env file
-echo "OPENAI_API_KEY=your_openai_api_key_here" >> .env
-echo "GOOGLE_API_KEY=your_google_api_key_here" >> .env
 ```
 
 ## Cursor Integration
