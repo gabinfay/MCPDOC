@@ -11,6 +11,12 @@ TEST_URLS = [
     "https://docs.livekit.io/llms.txt"  # LiveKit docs
 ]
 
+# Test URLs for scraping (sites that don't provide llms.txt)
+SCRAPING_TEST_URLS = [
+    {"url": "https://platform.openai.com/docs", "keep_pattern": "https://platform.openai.com/docs"},  # OpenAI docs
+    {"url": "https://docs.anthropic.com/", "keep_pattern": "https://docs.anthropic.com/"},  # Anthropic docs
+]
+
 async def test_dynamic_indexing():
     """Test the new dynamic documentation indexing functionality"""
     print("=== Testing Dynamic Documentation Indexing ===")
@@ -109,6 +115,70 @@ async def test_existing_cache_detection():
                 stripe_result = await session.call_tool('index_documentation', {'url': 'https://docs.stripe.com/llms.txt'})
                 print(f"   Stripe indexing result: {stripe_result}")
 
+async def test_scraping_functionality():
+    """Test the new scraping and indexing functionality"""
+    print("=== Testing Scraping and Indexing Functionality ===")
+    
+    # Start server without initial URL
+    server_env = os.environ.copy()
+    server_env.pop("URL_TO_LLMSTXT", None)  # Remove if exists
+    
+    # Ensure API keys are passed
+    server_env["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY", "")
+    server_env["GEMINI_API_KEY"] = os.getenv("GEMINI_API_KEY", "")
+    server_env["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "")
+
+    server_params = StdioServerParameters(
+        command='.venv/bin/python', 
+        args=['doc_agent_server.py'],
+        env=server_env
+    )
+
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            
+            # Test 1: List initial documentation sources
+            print("\n1. Listing initial documentation sources...")
+            result = await session.call_tool('list_documentation_sources', {})
+            print("Result:", result)
+            
+            # Test 2: Try scraping a documentation site
+            # Let's start with a simple one - we'll use a basic docs site
+            test_url = "https://platform.openai.com/docs"  # OpenAI has good docs structure
+            keep_pattern = "https://platform.openai.com/docs"
+            max_pages = 5  # Keep it small for testing
+            
+            print(f"\n2. Scraping documentation from: {test_url}")
+            print(f"   Keep pattern: {keep_pattern}")
+            print(f"   Max pages: {max_pages}")
+            result = await session.call_tool('scrape_and_index_documentation', {
+                'start_url': test_url,
+                'keep_url_pattern': keep_pattern,
+                'max_pages': max_pages
+            })
+            print("Scraping result:", result)
+            
+            # Test 3: List documentation sources after scraping
+            print("\n3. Listing documentation sources after scraping...")
+            result = await session.call_tool('list_documentation_sources', {})
+            print("Result:", result)
+            
+            # Test 4: Ask a question using the scraped documentation
+            if "Successfully scraped and indexed" in str(result):
+                print("\n4. Asking a question using the scraped documentation...")
+                query = "What is the OpenAI API and how do I get started?"
+                result = await session.call_tool('ask_doc_agent', {'query': query})
+                print("Query:", query)
+                print("Answer:", result[:500] + "..." if len(result) > 500 else result)
+            else:
+                print("\n4. Skipping question test - scraping may have failed")
+            
+            # Test 5: Test basic functionality (fallback)
+            print("\n5. Testing basic functionality...")
+            result = await session.call_tool('test_basic_functionality', {})
+            print("Basic functionality test:", result)
+
 async def client():
     """Original client functionality for backward compatibility"""
     url_to_use = os.getenv("TEST_URL_TO_LLMSTXT", "https://raw.githubusercontent.com/mem0ai/mem0/main/docs/llms.txt")
@@ -155,11 +225,13 @@ if __name__ == '__main__':
     load_dotenv()
     
     # Choose which test to run
-    test_mode = os.getenv("TEST_MODE", "dynamic")  # "dynamic" or "legacy"
+    test_mode = os.getenv("TEST_MODE", "dynamic")  # "dynamic", "existing_cache", "scraping", or "legacy"
     
     if test_mode == "dynamic":
         asyncio.run(test_dynamic_indexing())
     elif test_mode == "existing_cache":
         asyncio.run(test_existing_cache_detection())
+    elif test_mode == "scraping":
+        asyncio.run(test_scraping_functionality())
     else:
         asyncio.run(client())

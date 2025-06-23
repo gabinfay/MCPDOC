@@ -15,3 +15,6 @@ httpx
 openai
 crewai
 crewai[tools]
+beautifulsoup4
+markdownify
+playwright

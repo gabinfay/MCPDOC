@@ -6,10 +6,15 @@ import asyncio
 import os
 import hashlib # For generating unique cache directory names
 import httpx # For asynchronous HTTP requests
-from urllib.parse import urlparse, urljoin # For URL manipulation
+from urllib.parse import urlparse, urljoin, unquote # For URL manipulation
 import re # For regular expressions
 import openai # Added for V3
 import json # For state persistence
+import time # For scraping delays
+from bs4 import BeautifulSoup # For HTML parsing in scraping
+from markdownify import markdownify as md # For converting HTML to markdown
+from playwright.async_api import async_playwright # For JavaScript-heavy pages
+from concurrent.futures import ThreadPoolExecutor # For parallel processing
 
 from google.genai import types
 import google.adk # For version and path checking
@@ -861,6 +866,456 @@ def discover_existing_cache_directories():
         logger.error(f"Error during cache directory discovery: {e}", exc_info=True)
 
 
+# === SCRAPING HELPER FUNCTIONS (adapted from complete_docs_scraper.py) ===
+
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+
+def sanitize_filename(url_path):
+    """Sanitize URL path for use as filename."""
+    decoded_path = unquote(url_path)
+    sanitized = decoded_path.replace('/', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+    sanitized = sanitized.strip('_ ')
+    if not sanitized:
+        return "index"
+    return sanitized
+
+def get_all_links_from_html(html_content, base_url, subdomain_to_keep):
+    """Extract all relevant links from HTML content."""
+    soup = BeautifulSoup(html_content, 'html.parser')
+    links = set()
+    
+    # Find all links
+    for a_tag in soup.find_all('a', href=True):
+        href = a_tag['href']
+        
+        # Skip empty hrefs, anchors, and javascript links
+        if not href or href.startswith('#') or href.startswith('javascript:') or href.startswith('mailto:'):
+            continue
+            
+        # Convert relative URLs to absolute
+        full_url = urljoin(base_url, href)
+        parsed_full_url = urlparse(full_url)
+        
+        # Remove fragment and query parameters for normalization
+        normalized_url = parsed_full_url._replace(fragment="", query="").geturl()
+        
+        # Ensure URL ends without trailing slash for consistency (except root)
+        if normalized_url.endswith('/') and normalized_url != subdomain_to_keep.rstrip('/') + '/':
+            normalized_url = normalized_url.rstrip('/')
+        
+        # Check if URL belongs to the target domain/subdomain
+        if normalized_url.startswith(subdomain_to_keep.rstrip('/')):
+            links.add(normalized_url)
+            
+    return links
+
+async def scrape_single_page_async(url, subdomain_to_keep_filter, output_folder, timeout=30000):
+    """Scrape a single page with async Playwright and improved error handling."""
+    start_time = time.time()
+    max_retries = 2
+    retry_count = 0
+
+    while retry_count <= max_retries:
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                context = await browser.new_context(
+                    user_agent=USER_AGENT,
+                    viewport={'width': 1280, 'height': 720}
+                )
+                page = await context.new_page()
+                
+                html_content = None
+                actual_url_processed = url 
+                
+                try:
+                    response = await page.goto(url, timeout=timeout, wait_until='domcontentloaded')
+                    if response:
+                        actual_url_processed = response.url
+                    
+                    # Wait for dynamic content
+                    await page.wait_for_timeout(2000)
+                    html_content = await page.content()
+                    
+                except Exception as e:
+                    logger.warning(f"Attempt {retry_count + 1}: Error loading {url}: {e}")
+                    if retry_count < max_retries:
+                        retry_count += 1
+                        await browser.close()
+                        await asyncio.sleep(1)
+                        continue
+                    else:
+                        await browser.close()
+                        return None
+                
+                await browser.close()
+                break
+
+        except Exception as e:
+            logger.error(f"Browser error for {url}: {e}")
+            if retry_count < max_retries:
+                retry_count += 1
+                await asyncio.sleep(1)
+                continue
+            else:
+                return None
+
+    if not html_content:
+        logger.warning(f"Failed to get content from {url} after {max_retries + 1} attempts.")
+        return None
+
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        title_tag = soup.find('title')
+        page_title = title_tag.string.strip() if title_tag else urlparse(actual_url_processed).path.split('/')[-1] or "Untitled"
+        page_title = page_title.replace('\n', '').replace('\r', '')
+
+        # Skip error pages
+        if any(indicator in page_title.lower() for indicator in ['page not found', '404', 'error', 'not found']):
+            logger.info(f"Skipping error page: {actual_url_processed} (Title: {page_title})")
+            return None
+
+        # Try multiple content selectors in order of preference
+        main_content_tags = [
+            'main', 
+            'article', 
+            '[role="main"]',
+            '.content', 
+            '.main-content', 
+            '.post-content',
+            '.documentation',
+            '.docs-content',
+            '#content',
+            '.markdown-body',
+            'body'
+        ]
+        
+        content_element = None
+        for tag_or_class in main_content_tags:
+            if tag_or_class.startswith('.'):
+                content_element = soup.find(attrs={"class": tag_or_class[1:]})
+            elif tag_or_class.startswith('#'):
+                content_element = soup.find(attrs={"id": tag_or_class[1:]})
+            elif tag_or_class.startswith('['):
+                if 'role="main"' in tag_or_class:
+                    content_element = soup.find(attrs={"role": "main"})
+            else:
+                content_element = soup.find(tag_or_class)
+            if content_element:
+                break
+        
+        if not content_element:
+            logger.warning(f"No suitable content element found for {actual_url_processed}")
+            return None
+
+        # Remove unwanted elements
+        for unwanted in content_element.find_all(['script', 'style', 'nav', 'header', 'footer', '.sidebar', '.navigation']):
+            unwanted.decompose()
+
+        markdown_content = md(str(content_element), heading_style="atx", bullets="-")
+        
+        # Clean up markdown
+        lines = markdown_content.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            if not cleaned_lines and not line.strip():
+                continue
+            cleaned_lines.append(line)
+        
+        markdown_content = '\n'.join(cleaned_lines).strip()
+        
+        # Skip pages with minimal content
+        if len(markdown_content) < 50:
+            logger.info(f"Skipping page with minimal content: {actual_url_processed}")
+            return None
+        
+        # Create folder structure based on URL path with improved filename generation
+        parsed_actual_url = urlparse(actual_url_processed)
+        url_path = parsed_actual_url.path.strip('/')
+        
+        if url_path:
+            path_parts = url_path.split('/')
+            folder_path = os.path.join(output_folder, *path_parts[:-1]) if len(path_parts) > 1 else output_folder
+            base_filename = sanitize_filename(path_parts[-1]) if path_parts[-1] else "index"
+        else:
+            folder_path = output_folder
+            base_filename = "index"
+        
+        # Ensure unique filenames to prevent overwrites
+        os.makedirs(folder_path, exist_ok=True)
+        saved_filepath = os.path.join(folder_path, f"{base_filename}.md")
+        
+        # If file already exists, add a suffix
+        counter = 1
+        original_filepath = saved_filepath
+        while os.path.exists(saved_filepath):
+            name_without_ext = os.path.splitext(original_filepath)[0]
+            saved_filepath = f"{name_without_ext}_{counter}.md"
+            counter += 1
+
+        # Create markdown with metadata
+        final_markdown = f"# {page_title}\n\nSource: {actual_url_processed}\n\n{markdown_content}"
+
+        with open(saved_filepath, 'w', encoding='utf-8') as f:
+            f.write(final_markdown)
+        
+        # Extract new links
+        links_on_page = get_all_links_from_html(html_content, actual_url_processed, subdomain_to_keep_filter)
+        
+        end_time = time.time()
+        
+        return {
+            'url': url,
+            'actual_url': actual_url_processed,
+            'title': page_title,
+            'content': final_markdown,
+            'file_path': saved_filepath,
+            'links': links_on_page,
+            'processing_time': end_time - start_time
+        }
+
+    except Exception as e:
+        logger.error(f"Content processing error for {url}: {e}")
+        return None
+
+async def generate_llms_txt_from_scraped_files(scraped_files_meta, output_folder):
+    """Generate llms.txt file in mem0 format from scraped files."""
+    llms_file_path = os.path.join(output_folder, "llms.txt")
+    
+    # Group files by folder structure
+    grouped_files = {}
+    
+    for result in scraped_files_meta.values():
+        if not result or not result.get('title') or not result.get('actual_url'):
+            continue
+            
+        title = result['title']
+        
+        # Skip error pages
+        if any(indicator in title.lower() for indicator in ['page not found', '404', 'error']):
+            continue
+                
+        # Extract relative path from the saved file path
+        rel_path = os.path.relpath(result['file_path'], output_folder)
+        folder = os.path.dirname(rel_path)
+        
+        if folder == '.':
+            folder = 'Root'
+        
+        if folder not in grouped_files:
+            grouped_files[folder] = []
+        
+        # Clean title for display
+        clean_title = title.replace('[', '').replace(']', '').strip()
+        # Remove site suffix if present
+        clean_title = re.sub(r'\s*\|\s*.*$', '', clean_title)
+        
+        grouped_files[folder].append((clean_title, result['actual_url']))
+    
+    # Remove duplicates within each folder
+    for folder in grouped_files:
+        seen_urls = set()
+        unique_files = []
+        for title, url in grouped_files[folder]:
+            if url not in seen_urls:
+                seen_urls.add(url)
+                unique_files.append((title, url))
+        grouped_files[folder] = unique_files
+    
+    # Write the llms.txt file
+    with open(llms_file_path, 'w', encoding='utf-8') as f:
+        f.write("# Documentation\n\n")
+        
+        # Sort folders for consistent output
+        for folder in sorted(grouped_files.keys()):
+            if folder == 'Root':
+                f.write("## Docs\n\n")
+            else:
+                folder_name = folder.replace('_', ' ').replace('-', ' ').title()
+                f.write(f"## {folder_name}\n\n")
+            
+            # Sort files within folder
+            for title, url in sorted(grouped_files[folder]):
+                f.write(f"- [{title}]({url})\n")
+            
+            f.write("\n")
+        
+        # Add optional section
+        f.write(f"## Optional\n\n")
+        if scraped_files_meta:
+            first_result = next(iter(scraped_files_meta.values()))
+            if first_result and first_result.get('actual_url'):
+                base_url = f"{urlparse(first_result['actual_url']).scheme}://{urlparse(first_result['actual_url']).netloc}"
+                f.write(f"- [Documentation Home]({base_url})\n")
+    
+    logger.info(f"✅ Generated llms.txt at: {llms_file_path}")
+    return llms_file_path
+
+async def generate_llms_full_txt_from_scraped_files(scraped_files_meta, output_folder):
+    """Generate llms-full.txt with concatenated content from scraped files."""
+    llms_full_path = os.path.join(output_folder, "llms-full.txt")
+    
+    all_content = []
+    
+    # Sort by URL for consistent ordering
+    sorted_results = sorted(scraped_files_meta.values(), key=lambda x: x['actual_url'] if x else "")
+    
+    for result in sorted_results:
+        if not result or not result.get('content'):
+            continue
+            
+        content = result['content']
+        url = result['actual_url']
+        
+        # Extract title and content from the markdown
+        lines = content.splitlines()
+        if not lines:
+            continue
+
+        # Extract title (first line, removing '# ')
+        title = lines[0].strip().lstrip('# ').strip()
+        
+        # Find content after metadata
+        content_start_index = 0
+        for i, line in enumerate(lines):
+            if line.strip().lower().startswith("source:"):
+                content_start_index = i + 1
+                break
+        
+        # Skip blank lines
+        while content_start_index < len(lines) and not lines[content_start_index].strip():
+            content_start_index += 1
+            
+        actual_content = "\n".join(lines[content_start_index:]).strip()
+
+        # Append to collection
+        all_content.append(f"URL: {url}\nPage Name: {title}\n\n{actual_content}\n\n---\n")
+
+    concatenated_content = "\n".join(all_content)
+    
+    # Write to file
+    with open(llms_full_path, 'w', encoding='utf-8') as f:
+        f.write(concatenated_content)
+    
+    logger.info(f"✅ Generated llms-full.txt at: {llms_full_path}")
+    return llms_full_path
+
+async def scrape_documentation_site(start_url, subdomain_to_keep=None, max_workers=8, max_urls=500, timeout=30000):
+    """
+    Scrape a complete documentation site and return scraped files metadata.
+    This is the main scraping orchestrator function.
+    """
+    start_url = start_url.rstrip('/')
+    if not subdomain_to_keep:
+        subdomain_to_keep = start_url
+    
+    # Ensure subdomain_to_keep ends with /
+    parsed_s_to_keep = urlparse(subdomain_to_keep)
+    if not subdomain_to_keep.endswith('/') and (not parsed_s_to_keep.path or parsed_s_to_keep.path.endswith('/') or '.' not in parsed_s_to_keep.path.split('/')[-1]):
+        subdomain_to_keep += '/'
+    
+    logger.info(f"🚀 Starting documentation scraping")
+    logger.info(f"📍 Start URL: {start_url}")
+    logger.info(f"🎯 Keep URLs matching: {subdomain_to_keep}")
+    logger.info(f"👥 Max workers: {max_workers}")
+    logger.info(f"🔢 Max URLs: {max_urls}")
+    logger.info(f"⏱️  Timeout: {timeout}ms")
+    
+    overall_start_time = time.time()
+    master_visited_urls = set()       
+    master_to_visit_urls_q = {start_url}
+    all_scraped_results = {}     
+    urls_processed_count = 0
+    successful_scrapes = 0
+    failed_scrapes = 0
+    
+    logger.info("🔍 Discovering and scraping pages...")
+    
+    # Create a temporary output folder for scraping
+    temp_output_folder = None
+    
+    while (master_to_visit_urls_q or len(master_to_visit_urls_q) > 0) and urls_processed_count < max_urls:
+        # Process URLs in batches to avoid overwhelming the system
+        batch_size = min(max_workers, len(master_to_visit_urls_q), max_urls - urls_processed_count)
+        if batch_size == 0:
+            break
+            
+        # Get a batch of URLs to process
+        current_batch = []
+        for _ in range(batch_size):
+            if master_to_visit_urls_q:
+                current_batch.append(master_to_visit_urls_q.pop())
+        
+        # Process the batch
+        tasks = []
+        for current_url_to_fetch in current_batch:
+            # Improved URL normalization for consistency
+            parsed_url = urlparse(current_url_to_fetch)
+            normalized_url = parsed_url._replace(fragment="", query="").geturl()
+            # Remove trailing slash except for domain root to avoid duplicates
+            if normalized_url.endswith('/') and normalized_url.count('/') > 2:
+                normalized_url = normalized_url.rstrip('/')
+
+            if normalized_url in master_visited_urls:
+                continue 
+
+            master_visited_urls.add(normalized_url) 
+            urls_processed_count += 1
+            logger.info(f"[{time.time() - overall_start_time:.1f}s] 📤 Processing ({urls_processed_count}/{max_urls}): {normalized_url}")
+            
+            # Create temp output folder on first URL
+            if temp_output_folder is None:
+                temp_output_folder = f"/tmp/scrape_{int(time.time())}"
+                os.makedirs(temp_output_folder, exist_ok=True)
+            
+            task = scrape_single_page_async(normalized_url, subdomain_to_keep, temp_output_folder, timeout)
+            tasks.append((task, normalized_url))
+
+        # Wait for all tasks in this batch to complete
+        if tasks:
+            task_results = await asyncio.gather(*[task for task, _ in tasks], return_exceptions=True)
+            
+            for i, result in enumerate(task_results):
+                original_submitted_url = tasks[i][1]
+                
+                if isinstance(result, Exception):
+                    failed_scrapes += 1
+                    logger.error(f"❌ EXCEPTION for {original_submitted_url}: {result}")
+                elif result:
+                    successful_scrapes += 1
+                    logger.info(f"✅ SUCCESS: {result['actual_url']} -> {os.path.relpath(result['file_path'], temp_output_folder)} ({result['processing_time']:.1f}s)")
+                    all_scraped_results[original_submitted_url] = result
+                    
+                    # Add new discovered links to queue with improved normalization
+                    for link in result['links']:
+                        parsed_link = urlparse(link)
+                        norm_link = parsed_link._replace(fragment="", query="").geturl()
+                        # Remove trailing slash except for domain root to avoid duplicates
+                        if norm_link.endswith('/') and norm_link.count('/') > 2:
+                            norm_link = norm_link.rstrip('/')
+                        
+                        if (norm_link.startswith(subdomain_to_keep.rstrip('/')) and 
+                            norm_link not in master_visited_urls and 
+                            norm_link not in master_to_visit_urls_q):
+                            master_to_visit_urls_q.add(norm_link)
+                            logger.debug(f"🔗 Added new link to queue: {norm_link}")
+                else:
+                    failed_scrapes += 1
+                    logger.warning(f"❌ FAILED: {original_submitted_url}")
+    
+    overall_end_time = time.time()
+    
+    logger.info("📊 Scraping Results:")
+    logger.info(f"⏱️  Total time: {overall_end_time - overall_start_time:.1f} seconds")
+    logger.info(f"🔢 URLs processed: {len(master_visited_urls)}")
+    logger.info(f"✅ Successful: {successful_scrapes}")
+    logger.info(f"❌ Failed: {failed_scrapes}")
+    logger.info(f"📈 Success rate: {successful_scrapes / max(urls_processed_count, 1) * 100:.1f}%")
+    
+    return all_scraped_results, temp_output_folder
+
+# === END SCRAPING HELPER FUNCTIONS ===
+
 @mcp_server.tool()
 async def ask_doc_agent(query: str) -> str:
     logging.info(f"MCP Tool 'ask_doc_agent' called with query: {query[:100]}...")
@@ -1135,6 +1590,169 @@ async def set_active_documentation(url: str) -> str:
     success_msg = f"Set active documentation source to: {url} (Project: '{project_name}')"
     logging.info(success_msg)
     return success_msg
+
+
+@mcp_server.tool()
+async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str = None, max_pages: int = 100) -> str:
+    """
+    Scrape a documentation website and index it for querying.
+    This tool is for websites that don't provide llms.txt files.
+    
+    Args:
+        start_url: The starting URL to begin scraping from
+        keep_url_pattern: URL pattern to restrict scraping to (defaults to same domain/path as start_url)
+        max_pages: Maximum number of pages to scrape (default: 100, max: 500)
+    """
+    global INDEXED_DOCS, CURRENT_ACTIVE_DOC
+    
+    logging.info(f"MCP Tool 'scrape_and_index_documentation' called with start_url: {start_url}, keep_pattern: {keep_url_pattern}, max_pages: {max_pages}")
+    
+    try:
+        # Validate and sanitize inputs
+        if not start_url or not start_url.startswith(('http://', 'https://')):
+            return "ERROR: Invalid start_url. Must be a valid HTTP/HTTPS URL."
+        
+        if max_pages < 1:
+            max_pages = 1
+        elif max_pages > 500:
+            max_pages = 500
+            logging.warning(f"max_pages capped at 500 for performance reasons")
+        
+        # Use start_url as the identifier for this documentation source
+        source_identifier = start_url
+        
+        # Check if this URL is already indexed
+        if source_identifier in INDEXED_DOCS:
+            logging.info(f"Documentation source {source_identifier} is already indexed. Skipping scraping.")
+            return f"Documentation source already indexed: {source_identifier}. Use 'set_active_documentation' to switch to it."
+        
+        # Perform the scraping
+        logging.info(f"Starting scraping process for {start_url}")
+        scraped_files_meta, temp_output_folder = await scrape_documentation_site(
+            start_url=start_url,
+            subdomain_to_keep=keep_url_pattern,
+            max_workers=6,  # Reduced for stability
+            max_urls=max_pages,
+            timeout=30000
+        )
+        
+        if not scraped_files_meta:
+            return f"ERROR: No pages were successfully scraped from {start_url}. Please check the URL and try again."
+        
+        if not temp_output_folder or not os.path.exists(temp_output_folder):
+            return f"ERROR: Scraping completed but output folder is missing. Please try again."
+        
+        logging.info(f"Scraping completed: {len(scraped_files_meta)} pages scraped to {temp_output_folder}")
+        
+        # Generate llms.txt and llms-full.txt from scraped files
+        logging.info("Generating llms.txt from scraped files...")
+        llms_txt_path = await generate_llms_txt_from_scraped_files(scraped_files_meta, temp_output_folder)
+        
+        logging.info("Generating llms-full.txt from scraped files...")
+        llms_full_txt_path = await generate_llms_full_txt_from_scraped_files(scraped_files_meta, temp_output_folder)
+        
+        # Read the generated llms.txt content
+        try:
+            with open(llms_txt_path, 'r', encoding='utf-8') as f:
+                llms_txt_content = f.read()
+        except Exception as e:
+            return f"ERROR: Failed to read generated llms.txt: {e}"
+        
+        # Extract project name and create final cache directory
+        project_name = extract_project_name_from_llmstxt(llms_txt_content)
+        unique_cache_dir_name = get_unique_cache_dir_name(project_name, source_identifier)
+        final_cache_dir = os.path.join(BASE_CACHE_DIR, unique_cache_dir_name)
+        
+        # Move scraped files to final cache location
+        try:
+            if os.path.exists(final_cache_dir):
+                import shutil
+                shutil.rmtree(final_cache_dir)
+            
+            import shutil
+            shutil.move(temp_output_folder, final_cache_dir)
+            logging.info(f"Moved scraped files from {temp_output_folder} to {final_cache_dir}")
+        except Exception as e:
+            return f"ERROR: Failed to move scraped files to cache directory: {e}"
+        
+        # Create URL marker file to track source
+        create_url_marker_file(final_cache_dir, source_identifier)
+        
+        # Compute hash of llms-full.txt for cache validation
+        try:
+            with open(os.path.join(final_cache_dir, "llms-full.txt"), 'r', encoding='utf-8') as f:
+                llms_full_content = f.read()
+            current_hash = compute_content_hash(llms_full_content)
+            save_llms_full_hash(final_cache_dir, current_hash)
+        except Exception as e:
+            logging.warning(f"Failed to save llms-full.txt hash: {e}")
+        
+        # Build file mapping for detailed index generation
+        # This uses the same pattern as the existing setup_documentation_source function
+        downloaded_files_path_url_map_for_indexing = {}
+        for result in scraped_files_meta.values():
+            if result and result.get('file_path') and result.get('actual_url'):
+                # Update file path to reflect new location
+                old_path = result['file_path']
+                relative_path = os.path.relpath(old_path, temp_output_folder)
+                new_path = os.path.join(final_cache_dir, relative_path)
+                if os.path.exists(new_path):
+                    downloaded_files_path_url_map_for_indexing[new_path] = result['actual_url']
+        
+        # Generate detailed index using the existing logic
+        logging.info(f"Generating detailed index for {len(downloaded_files_path_url_map_for_indexing)} scraped files...")
+        detailed_index_path = await generate_detailed_index_async(final_cache_dir, downloaded_files_path_url_map_for_indexing)
+        
+        if not detailed_index_path:
+            logging.error("Failed to generate detailed index for scraped documentation")
+            detailed_index_content = "Error: Detailed index generation failed after scraping"
+        else:
+            try:
+                with open(detailed_index_path, 'r', encoding='utf-8') as f:
+                    detailed_index_content = f.read()
+                logging.info(f"Successfully loaded detailed index content from: {detailed_index_path}")
+            except Exception as e:
+                logging.error(f"Failed to read detailed index file {detailed_index_path}: {e}")
+                detailed_index_content = "Error: Detailed index file was generated but could not be read"
+        
+        # Generate master index (simplified version)
+        master_index_content = generate_folder_index(final_cache_dir, llms_txt_content)
+        
+        # Store in indexed docs
+        INDEXED_DOCS[source_identifier] = {
+            'cache_dir': final_cache_dir,
+            'project_name': project_name,
+            'detailed_index_content': detailed_index_content,
+            'master_index_content': master_index_content
+        }
+        
+        # Set as current active doc
+        CURRENT_ACTIVE_DOC = source_identifier
+        
+        # Create completion marker
+        try:
+            completion_marker_file = os.path.join(final_cache_dir, ".download_complete")
+            with open(completion_marker_file, 'w', encoding='utf-8') as f:
+                f.write("Scraping and indexing completed successfully.")
+            logging.info(f"Created completion marker: {completion_marker_file}")
+        except Exception as e:
+            logging.warning(f"Failed to create completion marker: {e}")
+        
+        # Save state for persistence
+        save_indexed_docs_state()
+        
+        success_msg = f"Successfully scraped and indexed documentation from {start_url}. Project: '{project_name}'. Scraped {len(scraped_files_meta)} pages. Cache directory: {final_cache_dir}. Set as active documentation source."
+        logging.info(success_msg)
+        return success_msg
+        
+    except Exception as e:
+        error_msg = f"Error during scrape_and_index_documentation for {start_url}: {e}"
+        logging.error(error_msg, exc_info=True)
+        # Return more detailed error information
+        import traceback
+        traceback_str = traceback.format_exc()
+        logging.error(f"Full traceback: {traceback_str}")
+        return f"ERROR: {error_msg}\nDetails: {str(e)}\nType: {type(e).__name__}"
 
 async def main_async():
     global DOCS_ROOT_PATH_ABS, MASTER_INDEX_CONTENT, DETAILED_INDEX_CONTENT, INDEXED_DOCS, CURRENT_ACTIVE_DOC
