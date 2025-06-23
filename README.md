@@ -130,6 +130,21 @@ Switch to the Stripe documentation
 Set the active documentation to https://docs.stripe.com/llms.txt
 ```
 
+### 5. `scrape_and_index_documentation`
+**Purpose**: Scrape and index documentation from websites that don't provide llms.txt files
+
+**Parameters**:
+- `start_url` (string): The starting URL to begin scraping from
+- `keep_url_pattern` (string, optional): URL pattern to restrict scraping to (defaults to same domain/path as start_url)
+- `max_pages` (int, optional): Maximum number of pages to scrape (default: 100, max: 500)
+- `max_workers` (int, optional): Number of parallel workers for scraping (default: 10, adjust based on your machine)
+
+**Example Usage in Cursor**:
+```
+Scrape and index the documentation from https://docs.world.org/ with 20 workers
+Scrape the OpenAI platform docs from https://platform.openai.com/docs with max 50 pages and 15 workers
+```
+
 ## Example Workflows
 
 ### Getting Started

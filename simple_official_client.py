@@ -148,14 +148,17 @@ async def test_scraping_functionality():
             test_url = "https://platform.openai.com/docs"  # OpenAI has good docs structure
             keep_pattern = "https://platform.openai.com/docs"
             max_pages = 5  # Keep it small for testing
+            max_workers = 8  # Moderate number for testing
             
             print(f"\n2. Scraping documentation from: {test_url}")
             print(f"   Keep pattern: {keep_pattern}")
             print(f"   Max pages: {max_pages}")
+            print(f"   Max workers: {max_workers}")
             result = await session.call_tool('scrape_and_index_documentation', {
                 'start_url': test_url,
                 'keep_url_pattern': keep_pattern,
-                'max_pages': max_pages
+                'max_pages': max_pages,
+                'max_workers': max_workers
             })
             print("Scraping result:", result)
             

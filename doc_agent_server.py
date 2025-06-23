@@ -1203,7 +1203,7 @@ async def generate_llms_full_txt_from_scraped_files(scraped_files_meta, output_f
 async def scrape_documentation_site(start_url, subdomain_to_keep=None, max_workers=8, max_urls=500, timeout=30000):
     """
     Scrape a complete documentation site and return scraped files metadata.
-    This is the main scraping orchestrator function.
+    This is the main scraping orchestrator function - improved with ThreadPoolExecutor approach.
     """
     start_url = start_url.rstrip('/')
     if not subdomain_to_keep:
@@ -1221,6 +1221,16 @@ async def scrape_documentation_site(start_url, subdomain_to_keep=None, max_worke
     logger.info(f"🔢 Max URLs: {max_urls}")
     logger.info(f"⏱️  Timeout: {timeout}ms")
     
+    def normalize_url(url):
+        """Normalize URL for consistent comparison and deduplication."""
+        parsed = urlparse(url)
+        # Remove fragment and query parameters
+        normalized = parsed._replace(fragment="", query="").geturl()
+        # Remove trailing slash except for domain root to avoid duplicates
+        if normalized.endswith('/') and normalized.count('/') > 2:
+            normalized = normalized.rstrip('/')
+        return normalized
+    
     overall_start_time = time.time()
     master_visited_urls = set()       
     master_to_visit_urls_q = {start_url}
@@ -1232,76 +1242,77 @@ async def scrape_documentation_site(start_url, subdomain_to_keep=None, max_worke
     logger.info("🔍 Discovering and scraping pages...")
     
     # Create a temporary output folder for scraping
-    temp_output_folder = None
+    temp_output_folder = f"/tmp/scrape_{int(time.time())}"
+    os.makedirs(temp_output_folder, exist_ok=True)
     
-    while (master_to_visit_urls_q or len(master_to_visit_urls_q) > 0) and urls_processed_count < max_urls:
-        # Process URLs in batches to avoid overwhelming the system
-        batch_size = min(max_workers, len(master_to_visit_urls_q), max_urls - urls_processed_count)
-        if batch_size == 0:
-            break
-            
-        # Get a batch of URLs to process
-        current_batch = []
-        for _ in range(batch_size):
-            if master_to_visit_urls_q:
-                current_batch.append(master_to_visit_urls_q.pop())
+    # Use ThreadPoolExecutor for better parallelization like complete_docs_scraper.py
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_url_map = {}
         
-        # Process the batch
-        tasks = []
-        for current_url_to_fetch in current_batch:
-            # Improved URL normalization for consistency
-            parsed_url = urlparse(current_url_to_fetch)
-            normalized_url = parsed_url._replace(fragment="", query="").geturl()
-            # Remove trailing slash except for domain root to avoid duplicates
-            if normalized_url.endswith('/') and normalized_url.count('/') > 2:
-                normalized_url = normalized_url.rstrip('/')
-
-            if normalized_url in master_visited_urls:
-                continue 
-
-            master_visited_urls.add(normalized_url) 
-            urls_processed_count += 1
-            logger.info(f"[{time.time() - overall_start_time:.1f}s] 📤 Processing ({urls_processed_count}/{max_urls}): {normalized_url}")
-            
-            # Create temp output folder on first URL
-            if temp_output_folder is None:
-                temp_output_folder = f"/tmp/scrape_{int(time.time())}"
-                os.makedirs(temp_output_folder, exist_ok=True)
-            
-            task = scrape_single_page_async(normalized_url, subdomain_to_keep, temp_output_folder, timeout)
-            tasks.append((task, normalized_url))
-
-        # Wait for all tasks in this batch to complete
-        if tasks:
-            task_results = await asyncio.gather(*[task for task, _ in tasks], return_exceptions=True)
-            
-            for i, result in enumerate(task_results):
-                original_submitted_url = tasks[i][1]
+        while (master_to_visit_urls_q or future_to_url_map) and urls_processed_count < max_urls:
+            # Submit new tasks dynamically
+            while (master_to_visit_urls_q and 
+                   len(future_to_url_map) < max_workers and 
+                   urls_processed_count < max_urls):
                 
-                if isinstance(result, Exception):
-                    failed_scrapes += 1
-                    logger.error(f"❌ EXCEPTION for {original_submitted_url}: {result}")
-                elif result:
-                    successful_scrapes += 1
-                    logger.info(f"✅ SUCCESS: {result['actual_url']} -> {os.path.relpath(result['file_path'], temp_output_folder)} ({result['processing_time']:.1f}s)")
-                    all_scraped_results[original_submitted_url] = result
-                    
-                    # Add new discovered links to queue with improved normalization
-                    for link in result['links']:
-                        parsed_link = urlparse(link)
-                        norm_link = parsed_link._replace(fragment="", query="").geturl()
-                        # Remove trailing slash except for domain root to avoid duplicates
-                        if norm_link.endswith('/') and norm_link.count('/') > 2:
-                            norm_link = norm_link.rstrip('/')
+                current_url_to_fetch = master_to_visit_urls_q.pop()
+                normalized_url = normalize_url(current_url_to_fetch)
+
+                if normalized_url in master_visited_urls:
+                    continue 
+
+                master_visited_urls.add(normalized_url) 
+                urls_processed_count += 1
+                logger.info(f"[{time.time() - overall_start_time:.1f}s] 📤 Submitting ({urls_processed_count}/{max_urls}): {normalized_url}")
+                
+                # Create asyncio task wrapped in executor for thread pool
+                future = executor.submit(
+                    asyncio.run,
+                    scrape_single_page_async(normalized_url, subdomain_to_keep, temp_output_folder, timeout)
+                )
+                future_to_url_map[future] = normalized_url
+
+            if not future_to_url_map:
+                if not master_to_visit_urls_q: 
+                    break 
+                await asyncio.sleep(0.1)  # Small async delay
+                continue
+
+            # Process completed tasks as they finish
+            done_futures = []
+            for future in future_to_url_map:
+                if future.done():
+                    done_futures.append(future)
+            
+            for future in done_futures:
+                original_submitted_url = future_to_url_map.pop(future)
+                try:
+                    result = future.result()
+
+                    if result:
+                        successful_scrapes += 1
+                        logger.info(f"[{time.time() - overall_start_time:.1f}s] ✅ SUCCESS: {result['actual_url']} -> {os.path.relpath(result['file_path'], temp_output_folder)} ({result['processing_time']:.1f}s)")
+                        all_scraped_results[original_submitted_url] = result
                         
-                        if (norm_link.startswith(subdomain_to_keep.rstrip('/')) and 
-                            norm_link not in master_visited_urls and 
-                            norm_link not in master_to_visit_urls_q):
-                            master_to_visit_urls_q.add(norm_link)
-                            logger.debug(f"🔗 Added new link to queue: {norm_link}")
-                else:
+                        # Add new discovered links to queue immediately
+                        for link in result['links']:
+                            norm_link = normalize_url(link)
+                            if (norm_link.startswith(subdomain_to_keep.rstrip('/')) and 
+                                norm_link not in master_visited_urls and 
+                                norm_link not in master_to_visit_urls_q):
+                                master_to_visit_urls_q.add(norm_link)
+                                logger.debug(f"🔗 Added new link to queue: {norm_link}")
+                    else:
+                        failed_scrapes += 1
+                        logger.warning(f"[{time.time() - overall_start_time:.1f}s] ❌ FAILED: {original_submitted_url}")
+                        
+                except Exception as exc:
                     failed_scrapes += 1
-                    logger.warning(f"❌ FAILED: {original_submitted_url}")
+                    logger.error(f"[{time.time() - overall_start_time:.1f}s] ❌ EXCEPTION for {original_submitted_url}: {exc}")
+            
+            # Small delay to prevent busy waiting
+            if future_to_url_map:
+                await asyncio.sleep(0.1)
     
     overall_end_time = time.time()
     
@@ -1593,7 +1604,7 @@ async def set_active_documentation(url: str) -> str:
 
 
 @mcp_server.tool()
-async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str = None, max_pages: int = 100) -> str:
+async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str = None, max_pages: int = 100, max_workers: int = 10) -> str:
     """
     Scrape a documentation website and index it for querying.
     This tool is for websites that don't provide llms.txt files.
@@ -1602,10 +1613,11 @@ async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str =
         start_url: The starting URL to begin scraping from
         keep_url_pattern: URL pattern to restrict scraping to (defaults to same domain/path as start_url)
         max_pages: Maximum number of pages to scrape (default: 100, max: 500)
+        max_workers: Number of parallel workers for scraping (default: 10, adjust based on your machine)
     """
     global INDEXED_DOCS, CURRENT_ACTIVE_DOC
     
-    logging.info(f"MCP Tool 'scrape_and_index_documentation' called with start_url: {start_url}, keep_pattern: {keep_url_pattern}, max_pages: {max_pages}")
+    logging.info(f"MCP Tool 'scrape_and_index_documentation' called with start_url: {start_url}, keep_pattern: {keep_url_pattern}, max_pages: {max_pages}, max_workers: {max_workers}")
     
     try:
         # Validate and sanitize inputs
@@ -1617,6 +1629,12 @@ async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str =
         elif max_pages > 500:
             max_pages = 500
             logging.warning(f"max_pages capped at 500 for performance reasons")
+        
+        if max_workers < 1:
+            max_workers = 1
+        elif max_workers > 50:
+            max_workers = 50
+            logging.warning(f"max_workers capped at 50 for performance and safety reasons")
         
         # Use start_url as the identifier for this documentation source
         source_identifier = start_url
@@ -1631,7 +1649,7 @@ async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str =
         scraped_files_meta, temp_output_folder = await scrape_documentation_site(
             start_url=start_url,
             subdomain_to_keep=keep_url_pattern,
-            max_workers=6,  # Reduced for stability
+            max_workers=max_workers,  # Use configurable workers
             max_urls=max_pages,
             timeout=30000
         )
