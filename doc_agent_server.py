@@ -28,8 +28,25 @@ load_dotenv()
 print(f"DEBUG: google.adk version: {getattr(google.adk, '__version__', 'N/A')}", file=sys.stderr)
 print(f"DEBUG: google.adk path: {getattr(google.adk, '__path__', 'N/A')}", file=sys.stderr)
 
-logging.basicConfig(stream=sys.stderr, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
+# Configure logging to prevent duplicates
+root_logger = logging.getLogger()
+if not root_logger.handlers:
+    logging.basicConfig(stream=sys.stderr, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
+
 logger = logging.getLogger(__name__)
+# Prevent propagation to root logger to avoid duplicate messages
+logger.propagate = False
+
+# Ensure we don't have duplicate handlers on our specific logger
+if logger.handlers:
+    logger.handlers.clear()
+
+# Add a single handler with our desired format
+handler = logging.StreamHandler(sys.stderr)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 mcp_server = FastMCP("DocumentationAgentMCPV3") # Updated name for V3
 
@@ -75,6 +92,103 @@ def extract_project_name_from_llmstxt(llmstxt_content: str) -> str:
     except Exception as e:
         logger.error(f"Error extracting project name from llms.txt: {e}")
         return "unknown_project"
+
+
+def detect_llms_txt_url_type(llms_txt_content: str) -> str:
+    """
+    Detect whether the llms.txt contains direct markdown file URLs or web page URLs that need scraping.
+    Returns: 'markdown_files' or 'web_pages'
+    """
+    try:
+        markdown_links = re.findall(r'\[[^\]]*?\]\(([^)]+?)\)', llms_txt_content)
+        if not markdown_links:
+            return 'web_pages'  # Default to web_pages if no links found
+        
+        # Sample the first few links to determine type
+        sample_links = markdown_links[:10]  # Check first 10 links
+        markdown_file_count = 0
+        web_page_count = 0
+        
+        for link in sample_links:
+            if link.startswith('#'):  # Skip anchors
+                continue
+            
+            # Check if it looks like a direct markdown file
+            if link.endswith('.md') or '/blob/' in link or '/raw/' in link:
+                markdown_file_count += 1
+            else:
+                # Check if it looks like a web page URL
+                if link.startswith('http') and not link.endswith('.md'):
+                    web_page_count += 1
+        
+        # If majority are markdown files, treat as markdown_files
+        if markdown_file_count > web_page_count:
+            logger.info(f"Detected llms.txt contains direct markdown file URLs ({markdown_file_count} markdown vs {web_page_count} web pages)")
+            return 'markdown_files'
+        else:
+            logger.info(f"Detected llms.txt contains web page URLs that need scraping ({web_page_count} web pages vs {markdown_file_count} markdown)")
+            return 'web_pages'
+            
+    except Exception as e:
+        logger.error(f"Error detecting llms.txt URL type: {e}")
+        return 'web_pages'  # Default to web_pages on error
+
+
+def extract_project_name_from_url(url: str) -> str:
+    """
+    Extracts a meaningful project name from a URL for scraping-based documentation.
+    Examples:
+    - https://docs.example.com/guide/ -> "docs_example"
+    - https://example.com/docs -> "example_docs"
+    - https://api.stripe.com -> "api_stripe"
+    - https://fastapi.tiangolo.com -> "fastapi_tiangolo"
+    """
+    try:
+        parsed_url = urlparse(url)
+        domain_parts = parsed_url.netloc.lower().split('.')
+        path_parts = [p for p in parsed_url.path.strip('/').split('/') if p]
+        
+        # Remove common TLDs and www
+        domain_parts = [p for p in domain_parts if p not in ['www', 'com', 'org', 'net', 'io', 'co', 'dev']]
+        
+        # Combine meaningful domain parts and path parts
+        name_parts = []
+        
+        # Add meaningful domain parts (e.g., 'docs', 'api', 'fastapi')
+        for part in domain_parts:
+            if len(part) > 2:  # Skip very short parts like 'co', 'uk'
+                name_parts.append(part)
+        
+        # Add first path part if it's meaningful (e.g., 'docs', 'guide', 'api')
+        if path_parts:
+            first_path = path_parts[0]
+            if first_path not in ['v1', 'v2', 'v3', 'latest'] and len(first_path) > 1:
+                name_parts.append(first_path)
+        
+        # Create final name
+        if name_parts:
+            project_name = '_'.join(name_parts)
+        else:
+            # Fallback to the main domain part
+            if domain_parts:
+                project_name = domain_parts[0]
+            else:
+                project_name = 'scraped_docs'
+        
+        # Make it filesystem-safe
+        safe_name = re.sub(r'[^\w-]', '_', project_name)
+        safe_name = re.sub(r'_+', '_', safe_name)  # Collapse multiple underscores
+        safe_name = safe_name.strip('_')
+        
+        if not safe_name:
+            safe_name = 'scraped_docs'
+        
+        logger.info(f"Extracted project name from URL '{url}' -> '{safe_name}'")
+        return safe_name
+        
+    except Exception as e:
+        logger.error(f"Error extracting project name from URL {url}: {e}")
+        return "scraped_docs"
 
 
 def get_unique_cache_dir_name(project_name: str, url_to_llmstxt: str) -> str:
@@ -367,13 +481,13 @@ async def generate_detailed_index_async(cache_dir_path: str, downloaded_files_ma
         return None
 
 
-async def setup_documentation_source(url_to_llmstxt: str) -> tuple[str | None, str | None, str | None]:
+async def setup_documentation_source(url_to_llmstxt: str, max_workers: int = 10) -> tuple[str | None, str | None, str | None, dict | None]:
     """
     Sets up the documentation source:
     - Creates a unique local cache directory for the url_to_llmstxt.
     - Downloads llms.txt and all referenced markdown files if not already cached.
     - Generates a detailed_index.md for the cached files.
-    - Returns (path_to_local_cache_root, llms_txt_content_str, path_to_detailed_index_file).
+    - Returns (path_to_local_cache_root, llms_txt_content_str, path_to_detailed_index_file, scraping_stats_dict).
     """
     try:
         global DOCS_ROOT_PATH_ABS 
@@ -382,7 +496,7 @@ async def setup_documentation_source(url_to_llmstxt: str) -> tuple[str | None, s
         
         if not url_to_llmstxt:
             logger.error("URL_TO_LLMSTXT environment variable is not set. Server cannot start.")
-            return None, None, None
+            return None, None, None, None
 
         # Test httpx import
         try:
@@ -390,7 +504,7 @@ async def setup_documentation_source(url_to_llmstxt: str) -> tuple[str | None, s
             logger.info("httpx import successful")
         except ImportError as e:
             logger.error(f"httpx import failed: {e}")
-            return None, None, None
+            return None, None, None, None
         
         # Test if we can create httpx client
         try:
@@ -399,10 +513,10 @@ async def setup_documentation_source(url_to_llmstxt: str) -> tuple[str | None, s
             logger.info("httpx AsyncClient creation test successful")
         except Exception as e:
             logger.error(f"httpx AsyncClient creation failed: {e}")
-            return None, None, None
+            return None, None, None, None
     except Exception as e:
         logger.error(f"Exception in setup_documentation_source early phase: {e}", exc_info=True)
-        return None, None, None
+        return None, None, None, None
 
     logger.info(f"BASE_CACHE_DIR is: {BASE_CACHE_DIR}")
     if not os.path.exists(BASE_CACHE_DIR):
@@ -412,7 +526,7 @@ async def setup_documentation_source(url_to_llmstxt: str) -> tuple[str | None, s
             logger.info(f"Created base cache directory: {BASE_CACHE_DIR}")
         except Exception as e:
             logger.error(f"Failed to create base cache directory {BASE_CACHE_DIR}: {e}", exc_info=True)
-            return None, None, None
+            return None, None, None, None
     else:
         logger.info(f"Base cache directory already exists: {BASE_CACHE_DIR}")
 
@@ -427,7 +541,7 @@ async def setup_documentation_source(url_to_llmstxt: str) -> tuple[str | None, s
             main_index_content_str = await download_file(url_to_llmstxt, temp_client)
             if not main_index_content_str:
                 logger.error(f"Failed to download the main index file from {url_to_llmstxt}.")
-                return None, None, None
+                return None, None, None, None
             
             logger.info(f"Successfully downloaded main index file. Content length: {len(main_index_content_str)}")
             
@@ -446,7 +560,7 @@ async def setup_documentation_source(url_to_llmstxt: str) -> tuple[str | None, s
             logger.info(f"Computed content hash: {current_llms_full_hash}")
     except Exception as e:
         logger.error(f"Exception during initial download phase: {e}", exc_info=True)
-        return None, None, None
+        return None, None, None, None
     
     # Extract project name from the downloaded content
     project_name = extract_project_name_from_llmstxt(main_index_content_str)
@@ -513,7 +627,7 @@ async def setup_documentation_source(url_to_llmstxt: str) -> tuple[str | None, s
                     logger.error("Failed to generate detailed index for an existing cache. Proceeding without it for this run.")
             
             DOCS_ROOT_PATH_ABS = unique_cache_subdir_abs
-            return unique_cache_subdir_abs, index_content_str, detailed_index_md_path # Return path, content loaded later
+            return unique_cache_subdir_abs, index_content_str, detailed_index_md_path, None # Return path, content loaded later
         except Exception as e:
             logger.error(f"Failed to read cached index file {cached_index_file_path} or handle detailed index: {e}. Re-downloading.", exc_info=True)
             try: os.remove(completion_marker_file) 
@@ -528,7 +642,7 @@ async def setup_documentation_source(url_to_llmstxt: str) -> tuple[str | None, s
             os.makedirs(unique_cache_subdir_abs)
         except Exception as e:
             logger.error(f"Failed to create unique cache directory {unique_cache_subdir_abs}: {e}", exc_info=True)
-            return None, None, None
+            return None, None, None, None
 
     # Create URL marker file to track which URL this cache is for
     create_url_marker_file(unique_cache_subdir_abs, url_to_llmstxt)
@@ -541,90 +655,174 @@ async def setup_documentation_source(url_to_llmstxt: str) -> tuple[str | None, s
         logger.info(f"Saved main index content to {cached_index_file_path}")
     except Exception as e:
         logger.error(f"Failed to save main index content to {cached_index_file_path}: {e}", exc_info=True)
-        return None, None, None
+        return None, None, None, None
 
-    async with httpx.AsyncClient() as client:
+    # Detect what type of URLs the llms.txt contains
+    url_type = detect_llms_txt_url_type(main_index_content_str)
+    
+    if url_type == 'web_pages':
+        logger.info("llms.txt contains web page URLs - using scraping approach")
+        # Extract URLs from llms.txt for scraping
         markdown_links = re.findall(r'\[[^\]]*?\]\(([^)]+?)\)', main_index_content_str)
-        processed_markdown_urls = []
+        web_page_urls = []
         for link_target in markdown_links:
             if link_target.startswith("http://") or link_target.startswith("https://"):
-                processed_markdown_urls.append(link_target)
-            elif not link_target.startswith("#") and ".md" in link_target: 
-                absolute_md_url = urljoin(url_to_llmstxt, link_target)
-                processed_markdown_urls.append(absolute_md_url)
-                logger.info(f"Resolved relative link '{link_target}' to '{absolute_md_url}'")
-            else:
-                logger.info(f"Skipping non-URL or non-MD link target: {link_target}")
+                web_page_urls.append(link_target)
+            elif not link_target.startswith("#") and link_target:
+                absolute_url = urljoin(url_to_llmstxt, link_target)
+                web_page_urls.append(absolute_url)
         
-        markdown_urls = processed_markdown_urls
+        logger.info(f"Found {len(web_page_urls)} web page URLs to scrape from llms.txt")
         
-        download_tasks = []
-        temp_file_paths_map_for_saving = {} # {original_url: local_abs_path} for saving after download
-
-        for md_url in markdown_urls:
-            local_md_path_abs = get_local_path_from_url(url_to_llmstxt, md_url, unique_cache_subdir_abs)
-            if local_md_path_abs:
-                download_tasks.append(download_file(md_url, client))
-                temp_file_paths_map_for_saving[md_url] = local_md_path_abs 
-            else:
-                logger.warning(f"Could not determine local path for {md_url}. Skipping.")
-
-        logger.info(f"Attempting to download {len(download_tasks)} markdown files concurrently...")
-        downloaded_contents = await asyncio.gather(*download_tasks, return_exceptions=True)
-
-        files_downloaded_count = 0
-        for i, content_or_exc in enumerate(downloaded_contents):
-            # This relies on python >=3.7 for dicts preserving insertion order for markdown_urls from processed_markdown_urls
-            # A more robust way would be to map tasks to URLs if gather doesn't guarantee order of results matching input tasks.
-            # However, asyncio.gather *does* preserve the order of awaitables.
-            md_url_key = markdown_urls[i] 
-            local_md_path_abs = temp_file_paths_map_for_saving.get(md_url_key)
-
-            if not local_md_path_abs: 
-                logger.error(f"Internal error: No local path found for URL {md_url_key} after download. Skipping save.")
-                continue
-
-            if isinstance(content_or_exc, Exception) or content_or_exc is None:
-                logger.error(f"Failed to download or got empty content for {md_url_key}: {content_or_exc}")
-                continue
+        # Deduplicate URLs to prevent double processing
+        unique_web_page_urls = list(set(web_page_urls))
+        if len(unique_web_page_urls) != len(web_page_urls):
+            logger.info(f"Removed {len(web_page_urls) - len(unique_web_page_urls)} duplicate URLs from llms.txt")
+            logger.info(f"Processing {len(unique_web_page_urls)} unique URLs")
+        
+        # Use scraping logic to fetch all the web pages
+        scraped_count = 0
+        failed_count = 0
+        
+        logger.info(f"Starting parallel scraping of {len(unique_web_page_urls)} web pages from llms.txt...")
+        
+        # Use ThreadPoolExecutor for parallel processing like scrape_documentation_site
+        from concurrent.futures import ThreadPoolExecutor
+        import time
+        
+        start_time = time.time()
+        # Use the max_workers parameter passed to the function
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_url_map = {}
             
-            md_content = content_or_exc
-            try:
-                os.makedirs(os.path.dirname(local_md_path_abs), exist_ok=True)
-                with open(local_md_path_abs, 'w', encoding='utf-8') as f_md:
-                    f_md.write(md_content)
-                logger.info(f"Saved {md_url_key} to {local_md_path_abs}")
-                downloaded_files_path_url_map_for_indexing[local_md_path_abs] = md_url_key # For detailed index generation
-                files_downloaded_count += 1
-            except Exception as e:
-                logger.error(f"Failed to save {md_url_key} to {local_md_path_abs}: {e}", exc_info=True)
+            # Submit all scraping tasks
+            for web_url in unique_web_page_urls:
+                subdomain_to_keep = "/".join(web_url.split("/")[:3])  # Extract base domain
+                future = executor.submit(
+                    asyncio.run,
+                    scrape_single_page_async(web_url, subdomain_to_keep, unique_cache_subdir_abs, timeout=30000)
+                )
+                future_to_url_map[future] = web_url
+            
+            # Process completed tasks
+            for future in future_to_url_map:
+                web_url = future_to_url_map[future]
+                try:
+                    result = future.result()
+                    
+                    if result and result.get('file_path'):
+                        downloaded_files_path_url_map_for_indexing[result['file_path']] = web_url
+                        scraped_count += 1
+                        logger.info(f"✅ Successfully scraped: {web_url}")
+                    else:
+                        failed_count += 1
+                        logger.warning(f"❌ Failed to scrape: {web_url}")
+                        
+                except Exception as e:
+                    failed_count += 1
+                    logger.error(f"❌ Error scraping {web_url}: {e}")
         
-        logger.info(f"Successfully downloaded and saved {files_downloaded_count} out of {len(markdown_urls)} markdown files.")
+        end_time = time.time()
+        logger.info(f"Parallel web page scraping completed in {end_time - start_time:.1f}s: {scraped_count} successful, {failed_count} failed")
+        
+        # Calculate scraping statistics
+        total_urls = len(unique_web_page_urls)
+        success_rate = (scraped_count / max(total_urls, 1)) * 100
+        scraping_stats = {
+            'total_urls': total_urls,
+            'successful_scrapes': scraped_count,
+            'failed_scrapes': failed_count,
+            'success_rate': success_rate,
+            'processing_time': end_time - start_time,
+            'scraping_method': 'web_pages_from_llms_txt'
+        }
+    else:
+        logger.info("llms.txt contains direct markdown file URLs - using direct download approach")
+        # Original logic for direct markdown file downloads
+        scraping_stats = None  # No scraping stats for direct markdown downloads
+        async with httpx.AsyncClient() as client:
+            markdown_links = re.findall(r'\[[^\]]*?\]\(([^)]+?)\)', main_index_content_str)
+            processed_markdown_urls = []
+            for link_target in markdown_links:
+                if link_target.startswith("http://") or link_target.startswith("https://"):
+                    processed_markdown_urls.append(link_target)
+                elif not link_target.startswith("#") and ".md" in link_target: 
+                    absolute_md_url = urljoin(url_to_llmstxt, link_target)
+                    processed_markdown_urls.append(absolute_md_url)
+                    logger.info(f"Resolved relative link '{link_target}' to '{absolute_md_url}'")
+                else:
+                    logger.info(f"Skipping non-URL or non-MD link target: {link_target}")
+            
+            markdown_urls = processed_markdown_urls
+            
+            download_tasks = []
+            temp_file_paths_map_for_saving = {} # {original_url: local_abs_path} for saving after download
 
-        # Generate detailed index for the newly downloaded files
-        if downloaded_files_path_url_map_for_indexing:
-            generated_detailed_index_path = await generate_detailed_index_async(unique_cache_subdir_abs, downloaded_files_path_url_map_for_indexing)
-            if generated_detailed_index_path:
-                detailed_index_md_path = generated_detailed_index_path # Use the newly generated one
-            else:
-                logger.error("Failed to generate detailed index after fresh download. Proceeding without it.")
-                detailed_index_md_path = None # Ensure it's None if generation failed
+            for md_url in markdown_urls:
+                local_md_path_abs = get_local_path_from_url(url_to_llmstxt, md_url, unique_cache_subdir_abs)
+                if local_md_path_abs:
+                    download_tasks.append(download_file(md_url, client))
+                    temp_file_paths_map_for_saving[md_url] = local_md_path_abs 
+                else:
+                    logger.warning(f"Could not determine local path for {md_url}. Skipping.")
+
+            logger.info(f"Attempting to download {len(download_tasks)} markdown files concurrently...")
+            downloaded_contents = await asyncio.gather(*download_tasks, return_exceptions=True)
+
+            files_downloaded_count = 0
+            for i, content_or_exc in enumerate(downloaded_contents):
+                # This relies on python >=3.7 for dicts preserving insertion order for markdown_urls from processed_markdown_urls
+                # A more robust way would be to map tasks to URLs if gather doesn't guarantee order of results matching input tasks.
+                # However, asyncio.gather *does* preserve the order of awaitables.
+                md_url_key = markdown_urls[i] 
+                local_md_path_abs = temp_file_paths_map_for_saving.get(md_url_key)
+
+                if not local_md_path_abs: 
+                    logger.error(f"Internal error: No local path found for URL {md_url_key} after download. Skipping save.")
+                    continue
+
+                if isinstance(content_or_exc, Exception) or content_or_exc is None:
+                    logger.error(f"Failed to download or got empty content for {md_url_key}: {content_or_exc}")
+                    continue
+                
+                md_content = content_or_exc
+                try:
+                    os.makedirs(os.path.dirname(local_md_path_abs), exist_ok=True)
+                    with open(local_md_path_abs, 'w', encoding='utf-8') as f_md:
+                        f_md.write(md_content)
+                    logger.info(f"Saved {md_url_key} to {local_md_path_abs}")
+                    downloaded_files_path_url_map_for_indexing[local_md_path_abs] = md_url_key # For detailed index generation
+                    files_downloaded_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to save {md_url_key} to {local_md_path_abs}: {e}", exc_info=True)
+            
+            logger.info(f"Successfully downloaded and saved {files_downloaded_count} out of {len(markdown_urls)} markdown files.")
+
+    # Generate detailed index for the newly downloaded files (moved outside the if/else block)
+    if downloaded_files_path_url_map_for_indexing:
+        generated_detailed_index_path = await generate_detailed_index_async(unique_cache_subdir_abs, downloaded_files_path_url_map_for_indexing)
+        if generated_detailed_index_path:
+            detailed_index_md_path = generated_detailed_index_path # Use the newly generated one
         else:
-            logger.info("No files were successfully downloaded and mapped, skipping detailed index generation.")
-            detailed_index_md_path = None
+            logger.error("Failed to generate detailed index after fresh download. Proceeding without it.")
+            detailed_index_md_path = None # Ensure it's None if generation failed
+    else:
+        logger.info("No files were successfully downloaded and mapped, skipping detailed index generation.")
+        detailed_index_md_path = None
 
-        try:
-            with open(completion_marker_file, 'w', encoding='utf-8') as f_marker:
-                f_marker.write("Download completed successfully.")
-            logger.info(f"Created completion marker: {completion_marker_file}")
-        except Exception as e:
-            logger.error(f"Failed to create completion marker {completion_marker_file}: {e}", exc_info=True)
+    try:
+        with open(completion_marker_file, 'w', encoding='utf-8') as f_marker:
+            f_marker.write("Download completed successfully.")
+        logger.info(f"Created completion marker: {completion_marker_file}")
+    except Exception as e:
+        logger.error(f"Failed to create completion marker {completion_marker_file}: {e}", exc_info=True)
 
-        # Save the llms-full.txt hash for future cache validation
-        save_llms_full_hash(unique_cache_subdir_abs, current_llms_full_hash)
+    # Save the llms-full.txt hash for future cache validation
+    save_llms_full_hash(unique_cache_subdir_abs, current_llms_full_hash)
 
     DOCS_ROOT_PATH_ABS = unique_cache_subdir_abs
-    return unique_cache_subdir_abs, main_index_content_str, detailed_index_md_path
+    return unique_cache_subdir_abs, main_index_content_str, detailed_index_md_path, scraping_stats
 
 
 def generate_folder_index(current_docs_root_path: str, index_txt_content: str) -> str:
@@ -1200,10 +1398,10 @@ async def generate_llms_full_txt_from_scraped_files(scraped_files_meta, output_f
     logger.info(f"✅ Generated llms-full.txt at: {llms_full_path}")
     return llms_full_path
 
-async def scrape_documentation_site(start_url, subdomain_to_keep=None, max_workers=8, max_urls=500, timeout=30000):
+async def scrape_documentation_site(start_url, subdomain_to_keep=None, max_workers=8, timeout=30000):
     """
     Scrape a complete documentation site and return scraped files metadata.
-    This is the main scraping orchestrator function - improved with ThreadPoolExecutor approach.
+    This is the main scraping orchestrator function - crawls all discoverable links with no page limits.
     """
     start_url = start_url.rstrip('/')
     if not subdomain_to_keep:
@@ -1214,12 +1412,12 @@ async def scrape_documentation_site(start_url, subdomain_to_keep=None, max_worke
     if not subdomain_to_keep.endswith('/') and (not parsed_s_to_keep.path or parsed_s_to_keep.path.endswith('/') or '.' not in parsed_s_to_keep.path.split('/')[-1]):
         subdomain_to_keep += '/'
     
-    logger.info(f"🚀 Starting documentation scraping")
+    logger.info(f"🚀 Starting comprehensive documentation scraping")
     logger.info(f"📍 Start URL: {start_url}")
     logger.info(f"🎯 Keep URLs matching: {subdomain_to_keep}")
     logger.info(f"👥 Max workers: {max_workers}")
-    logger.info(f"🔢 Max URLs: {max_urls}")
     logger.info(f"⏱️  Timeout: {timeout}ms")
+    logger.info(f"🔗 Will crawl ALL discoverable links (no page limits)")
     
     def normalize_url(url):
         """Normalize URL for consistent comparison and deduplication."""
@@ -1249,11 +1447,10 @@ async def scrape_documentation_site(start_url, subdomain_to_keep=None, max_worke
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_url_map = {}
         
-        while (master_to_visit_urls_q or future_to_url_map) and urls_processed_count < max_urls:
+        while master_to_visit_urls_q or future_to_url_map:
             # Submit new tasks dynamically
             while (master_to_visit_urls_q and 
-                   len(future_to_url_map) < max_workers and 
-                   urls_processed_count < max_urls):
+                   len(future_to_url_map) < max_workers):
                 
                 current_url_to_fetch = master_to_visit_urls_q.pop()
                 normalized_url = normalize_url(current_url_to_fetch)
@@ -1263,7 +1460,7 @@ async def scrape_documentation_site(start_url, subdomain_to_keep=None, max_worke
 
                 master_visited_urls.add(normalized_url) 
                 urls_processed_count += 1
-                logger.info(f"[{time.time() - overall_start_time:.1f}s] 📤 Submitting ({urls_processed_count}/{max_urls}): {normalized_url}")
+                logger.info(f"[{time.time() - overall_start_time:.1f}s] 📤 Submitting ({urls_processed_count}): {normalized_url}")
                 
                 # Create asyncio task wrapped in executor for thread pool
                 future = executor.submit(
@@ -1316,14 +1513,26 @@ async def scrape_documentation_site(start_url, subdomain_to_keep=None, max_worke
     
     overall_end_time = time.time()
     
+    # Calculate statistics
+    total_urls = len(master_visited_urls)
+    success_rate = (successful_scrapes / max(total_urls, 1)) * 100
+    
     logger.info("📊 Scraping Results:")
     logger.info(f"⏱️  Total time: {overall_end_time - overall_start_time:.1f} seconds")
-    logger.info(f"🔢 URLs processed: {len(master_visited_urls)}")
+    logger.info(f"🔢 URLs processed: {total_urls}")
     logger.info(f"✅ Successful: {successful_scrapes}")
     logger.info(f"❌ Failed: {failed_scrapes}")
-    logger.info(f"📈 Success rate: {successful_scrapes / max(urls_processed_count, 1) * 100:.1f}%")
+    logger.info(f"📈 Success rate: {success_rate:.1f}%")
     
-    return all_scraped_results, temp_output_folder
+    scraping_stats = {
+        'total_urls': total_urls,
+        'successful_scrapes': successful_scrapes,
+        'failed_scrapes': failed_scrapes,
+        'success_rate': success_rate,
+        'processing_time': overall_end_time - overall_start_time
+    }
+    
+    return all_scraped_results, temp_output_folder, scraping_stats
 
 # === END SCRAPING HELPER FUNCTIONS ===
 
@@ -1493,16 +1702,46 @@ async def test_basic_functionality() -> str:
 
 
 @mcp_server.tool()
-async def index_documentation(url: str) -> str:
-    """Index a new documentation source from a URL containing llms.txt"""
+async def index_documentation(url: str, max_workers: int = 10) -> str:
+    """
+    Index documentation from a URL that contains an llms.txt file.
+    
+    🎯 USE THIS WHEN: The documentation site provides an llms.txt file (following the llms.txt standard).
+    
+    Args:
+        url: Direct URL to the llms.txt file (e.g., https://docs.example.com/llms.txt)
+        max_workers: Number of parallel workers for scraping web pages (default: 10, adjust based on your machine)
+    
+    This function will:
+    1. Download the llms.txt file from the provided URL
+    2. Parse all markdown file references within the llms.txt
+    3. Download all referenced documentation files OR scrape web pages if needed
+    4. Generate detailed summaries for intelligent querying
+    5. Cache everything locally for fast access
+    
+    Examples of llms.txt URLs:
+    - https://docs.anthropic.com/llms.txt
+    - https://fastapi.tiangolo.com/llms.txt
+    - https://python.langchain.com/llms.txt
+    
+    NOTE: If the llms.txt contains web page URLs (not direct markdown files), 
+    this function will automatically use parallel web scraping with the specified max_workers.
+    """
     global INDEXED_DOCS, CURRENT_ACTIVE_DOC
     
-    logging.info(f"MCP Tool 'index_documentation' called with URL: {url}")
+    logging.info(f"MCP Tool 'index_documentation' called with URL: {url}, max_workers: {max_workers}")
     
     try:
+        # Validate and sanitize inputs
+        if max_workers < 1:
+            max_workers = 1
+        elif max_workers > 50:
+            max_workers = 50
+            logging.warning(f"max_workers capped at 50 for performance and safety reasons")
+        
         # Setup documentation source
         logging.info(f"Calling setup_documentation_source for {url}")
-        local_docs_root, index_file_content, detailed_index_file_abs_path = await setup_documentation_source(url)
+        local_docs_root, index_file_content, detailed_index_file_abs_path, scraping_stats = await setup_documentation_source(url, max_workers)
         logging.info(f"setup_documentation_source returned: root={local_docs_root}, content_len={len(index_file_content) if index_file_content else 'None'}, detailed_path={detailed_index_file_abs_path}")
         
         if not local_docs_root or index_file_content is None:
@@ -1535,7 +1774,8 @@ async def index_documentation(url: str) -> str:
             'cache_dir': local_docs_root,
             'project_name': project_name,
             'detailed_index_content': detailed_index_content,
-            'master_index_content': master_index_content
+            'master_index_content': master_index_content,
+            'scraping_stats': scraping_stats
         }
         
         # Set as current active doc
@@ -1544,7 +1784,38 @@ async def index_documentation(url: str) -> str:
         # Save state for persistence
         save_indexed_docs_state()
         
-        success_msg = f"Successfully indexed documentation from {url}. Project: '{project_name}'. Cache directory: {local_docs_root}. Set as active documentation source."
+        # Create success message with scraping statistics if available
+        if scraping_stats and scraping_stats.get('scraping_method') == 'web_pages_from_llms_txt':
+            success_rate = scraping_stats['success_rate']
+            total_urls = scraping_stats['total_urls']
+            successful_scrapes = scraping_stats['successful_scrapes']
+            failed_scrapes = scraping_stats['failed_scrapes']
+            
+            # Generate diagnostic message based on success rate
+            if success_rate < 5:
+                diagnostic = f"⚠️  WARNING: Very low success rate ({success_rate:.1f}%) suggests major issues with the website or network."
+            elif success_rate < 30:
+                diagnostic = f"⚠️  WARNING: Low success rate ({success_rate:.1f}%) indicates potential issues, but some content was scraped."
+            elif success_rate < 70:
+                diagnostic = f"✅ Moderate success rate ({success_rate:.1f}%) - acceptable for most documentation sites."
+            else:
+                diagnostic = f"✅ High success rate ({success_rate:.1f}%) - excellent scraping results."
+            
+            success_msg = f"""Successfully indexed documentation from {url} using web page scraping.
+
+📊 SCRAPING STATISTICS:
+• Project: '{project_name}'
+• Web pages scraped: {successful_scrapes} out of {total_urls} URLs from llms.txt
+• Success rate: {success_rate:.1f}%
+• Failed pages: {failed_scrapes}
+• Cache directory: {local_docs_root}
+
+{diagnostic}
+
+The documentation has been set as the active source and is ready for querying."""
+        else:
+            success_msg = f"Successfully indexed documentation from {url}. Project: '{project_name}'. Cache directory: {local_docs_root}. Set as active documentation source."
+        
         logging.info(success_msg)
         return success_msg
         
@@ -1604,31 +1875,40 @@ async def set_active_documentation(url: str) -> str:
 
 
 @mcp_server.tool()
-async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str = None, max_pages: int = 100, max_workers: int = 10) -> str:
+async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str = None, max_workers: int = 10) -> str:
     """
-    Scrape a documentation website and index it for querying.
-    This tool is for websites that don't provide llms.txt files.
+    Scrape and index documentation from websites that DON'T provide llms.txt files.
+    
+    🎯 USE THIS WHEN: The documentation site does NOT have an llms.txt file and you need to crawl/scrape it directly.
     
     Args:
-        start_url: The starting URL to begin scraping from
+        start_url: The starting URL to begin scraping from (e.g., https://docs.example.com/)
         keep_url_pattern: URL pattern to restrict scraping to (defaults to same domain/path as start_url)
-        max_pages: Maximum number of pages to scrape (default: 100, max: 500)
         max_workers: Number of parallel workers for scraping (default: 10, adjust based on your machine)
+    
+    This function will:
+    1. Start from the provided URL and discover all linked pages
+    2. Scrape ALL discoverable documentation pages (no page limits)
+    3. Convert HTML content to markdown format
+    4. Generate detailed summaries for intelligent querying
+    5. Create an llms.txt index from the scraped content
+    6. Cache everything locally for fast access
+    
+    ⚠️  NOTE: Use 'index_documentation' instead if the site has an llms.txt file - it's much faster and more reliable.
+    
+    Examples of sites that typically need scraping:
+    - https://docs.python.org/
+    - https://react.dev/
+    - https://docs.djangoproject.com/
     """
     global INDEXED_DOCS, CURRENT_ACTIVE_DOC
     
-    logging.info(f"MCP Tool 'scrape_and_index_documentation' called with start_url: {start_url}, keep_pattern: {keep_url_pattern}, max_pages: {max_pages}, max_workers: {max_workers}")
+    logging.info(f"MCP Tool 'scrape_and_index_documentation' called with start_url: {start_url}, keep_pattern: {keep_url_pattern}, max_workers: {max_workers}")
     
     try:
         # Validate and sanitize inputs
         if not start_url or not start_url.startswith(('http://', 'https://')):
             return "ERROR: Invalid start_url. Must be a valid HTTP/HTTPS URL."
-        
-        if max_pages < 1:
-            max_pages = 1
-        elif max_pages > 500:
-            max_pages = 500
-            logging.warning(f"max_pages capped at 500 for performance reasons")
         
         if max_workers < 1:
             max_workers = 1
@@ -1645,12 +1925,11 @@ async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str =
             return f"Documentation source already indexed: {source_identifier}. Use 'set_active_documentation' to switch to it."
         
         # Perform the scraping
-        logging.info(f"Starting scraping process for {start_url}")
-        scraped_files_meta, temp_output_folder = await scrape_documentation_site(
+        logging.info(f"Starting comprehensive scraping process for {start_url} (no page limits)")
+        scraped_files_meta, temp_output_folder, scraping_stats = await scrape_documentation_site(
             start_url=start_url,
             subdomain_to_keep=keep_url_pattern,
             max_workers=max_workers,  # Use configurable workers
-            max_urls=max_pages,
             timeout=30000
         )
         
@@ -1660,7 +1939,25 @@ async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str =
         if not temp_output_folder or not os.path.exists(temp_output_folder):
             return f"ERROR: Scraping completed but output folder is missing. Please try again."
         
+        # Analyze scraping success rate
+        success_rate = scraping_stats['success_rate']
+        total_urls = scraping_stats['total_urls']
+        successful_scrapes = scraping_stats['successful_scrapes']
+        failed_scrapes = scraping_stats['failed_scrapes']
+        processing_time = scraping_stats['processing_time']
+        
         logging.info(f"Scraping completed: {len(scraped_files_meta)} pages scraped to {temp_output_folder}")
+        logging.info(f"Success rate: {success_rate:.1f}% ({successful_scrapes}/{total_urls} pages)")
+        
+        # Generate diagnostic message based on success rate
+        if success_rate < 5:
+            diagnostic = f"⚠️  WARNING: Very low success rate ({success_rate:.1f}%) suggests major issues with the website or network."
+        elif success_rate < 30:
+            diagnostic = f"⚠️  WARNING: Low success rate ({success_rate:.1f}%) indicates potential issues, but some content was scraped."
+        elif success_rate < 70:
+            diagnostic = f"✅ Moderate success rate ({success_rate:.1f}%) - acceptable for most documentation sites."
+        else:
+            diagnostic = f"✅ High success rate ({success_rate:.1f}%) - excellent scraping results."
         
         # Generate llms.txt and llms-full.txt from scraped files
         logging.info("Generating llms.txt from scraped files...")
@@ -1676,8 +1973,8 @@ async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str =
         except Exception as e:
             return f"ERROR: Failed to read generated llms.txt: {e}"
         
-        # Extract project name and create final cache directory
-        project_name = extract_project_name_from_llmstxt(llms_txt_content)
+        # Extract project name from the start_url rather than generated content for scraping
+        project_name = extract_project_name_from_url(start_url)
         unique_cache_dir_name = get_unique_cache_dir_name(project_name, source_identifier)
         final_cache_dir = os.path.join(BASE_CACHE_DIR, unique_cache_dir_name)
         
@@ -1741,7 +2038,8 @@ async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str =
             'cache_dir': final_cache_dir,
             'project_name': project_name,
             'detailed_index_content': detailed_index_content,
-            'master_index_content': master_index_content
+            'master_index_content': master_index_content,
+            'scraping_stats': scraping_stats
         }
         
         # Set as current active doc
@@ -1759,7 +2057,19 @@ async def scrape_and_index_documentation(start_url: str, keep_url_pattern: str =
         # Save state for persistence
         save_indexed_docs_state()
         
-        success_msg = f"Successfully scraped and indexed documentation from {start_url}. Project: '{project_name}'. Scraped {len(scraped_files_meta)} pages. Cache directory: {final_cache_dir}. Set as active documentation source."
+        success_msg = f"""Successfully scraped and indexed complete documentation from {start_url}.
+
+📊 SCRAPING STATISTICS:
+• Project: '{project_name}'
+• Pages scraped: {successful_scrapes} out of {total_urls} discovered URLs
+• Success rate: {success_rate:.1f}%
+• Failed pages: {failed_scrapes}
+• Processing time: {processing_time:.1f} seconds
+• Cache directory: {final_cache_dir}
+
+{diagnostic}
+
+The documentation has been set as the active source and is ready for querying."""
         logging.info(success_msg)
         return success_msg
         
@@ -1811,7 +2121,7 @@ async def main_async():
             save_indexed_docs_state()  # Save the updated active doc
         else:
             # Setup new documentation source
-            local_docs_root, index_file_content, detailed_index_file_abs_path = await setup_documentation_source(url_to_llmstxt_env)
+            local_docs_root, index_file_content, detailed_index_file_abs_path, scraping_stats = await setup_documentation_source(url_to_llmstxt_env, max_workers=10)
 
             if not local_docs_root or index_file_content is None: 
                 logger.error(f"Failed to setup initial documentation source from {url_to_llmstxt_env}. Server will start without initial documentation.")
@@ -1839,7 +2149,8 @@ async def main_async():
                     'cache_dir': local_docs_root,
                     'project_name': project_name,
                     'detailed_index_content': DETAILED_INDEX_CONTENT,
-                    'master_index_content': MASTER_INDEX_CONTENT
+                    'master_index_content': MASTER_INDEX_CONTENT,
+                    'scraping_stats': scraping_stats
                 }
                 CURRENT_ACTIVE_DOC = url_to_llmstxt_env
                 save_indexed_docs_state()  # Save the new state

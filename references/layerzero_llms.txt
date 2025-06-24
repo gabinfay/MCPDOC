@@ -1,0 +1,272 @@
+# LayerZero V2
+
+- [LayerZero Documentation](https://docs.layerzero.network/v2/)
+
+# Concepts
+
+- [What is LayerZero?](https://docs.layerzero.network/v2/concepts/getting-started/what-is-layerzero)
+- [LayerZero Glossary](https://docs.layerzero.network/v2/concepts/glossary)
+
+# Applications
+
+- [Omnichain Applications (OApp)](https://docs.layerzero.network/v2/concepts/applications/oapp-standard)
+- [Omnichain Tokens (OFT & ONFT)](https://docs.layerzero.network/v2/concepts/applications/oft-standard)
+- [Omnichain Composability](https://docs.layerzero.network/v2/concepts/applications/composer-standard)
+- [Omnichain Queries (lzRead)](https://docs.layerzero.network/v2/concepts/applications/read-standard)
+
+# Protocol
+
+- [Protocol Overview](https://docs.layerzero.network/v2/concepts/protocol/protocol-overview)
+- [Omnichain Mesh Network](https://docs.layerzero.network/v2/concepts/protocol/mesh-network)
+- [LayerZero Endpoint](https://docs.layerzero.network/v2/concepts/protocol/layerzero-endpoint)
+- [Message, Packet, and Payload](https://docs.layerzero.network/v2/concepts/protocol/packet)
+- [Message Channel Security](https://docs.layerzero.network/v2/concepts/protocol/message-security)
+- [Message Options](https://docs.layerzero.network/v2/concepts/message-options)
+
+# Message Libraries
+
+- [Message Library Overview](https://docs.layerzero.network/v2/concepts/protocol/message-library)
+- [Message Send Library](https://docs.layerzero.network/v2/concepts/protocol/message-send-library)
+- [Message Receive Library](https://docs.layerzero.network/v2/concepts/protocol/message-receive-library)
+- [Message Read Library](https://docs.layerzero.network/v2/concepts/protocol/message-read-library)
+
+# Workers
+
+- [Workers Overview](https://docs.layerzero.network/v2/concepts/workers)
+- [Security Stack (DVNs)](https://docs.layerzero.network/v2/concepts/modular-security/security-stack-dvns)
+- [Executors](https://docs.layerzero.network/v2/concepts/permissionless-execution/executors)
+- [Transaction Pricing Model](https://docs.layerzero.network/v2/concepts/protocol/transaction-pricing)
+- [Workers Overview](https://docs.layerzero.network/v2/workers/overview)
+
+# Technical Reference
+
+- [OApp Technical Reference](https://docs.layerzero.network/v2/concepts/technical-reference/oapp-reference)
+- [OFT Technical Reference](https://docs.layerzero.network/v2/concepts/technical-reference/oft-reference)
+- [Options Technical Reference](https://docs.layerzero.network/v2/concepts/technical-reference/options-reference)
+- [LayerZero V2 EVM Protocol Overview](https://docs.layerzero.network/v2/developers/evm/protocol-contracts-overview)
+- [LayerZero EVM Chain Compatibility](https://docs.layerzero.network/v2/developers/evm/evm-variants/evm-compatible-variants)
+- [LayerZero V2 Integration Checklist](https://docs.layerzero.network/v2/developers/evm/technical-reference/integration-checklist)
+- [EVM DVN and Executor Configuration](https://docs.layerzero.network/v2/developers/evm/configuration/dvn-executor-config)
+- [Deploy Deterministic Addresses](https://docs.layerzero.network/v2/developers/evm/tooling/uniform-address)
+- [Solidity API](https://docs.layerzero.network/v2/developers/evm/technical-reference/api)
+- [Transaction Pricing](https://docs.layerzero.network/v2/developers/solana/technical-reference/tx-pricing)
+- [Solana Guidance](https://docs.layerzero.network/v2/developers/solana/technical-reference/solana-guidance)
+
+# LayerZero for EVM Developers
+
+- [LayerZero V2 Solidity Contract Standards](https://docs.layerzero.network/v2/developers/evm/overview)
+- [Sending Tokenized Assets](https://docs.layerzero.network/v2/developers/evm/oft/native-transfer)
+
+# Contract Standards
+
+- [LayerZero V2 OApp Quickstart](https://docs.layerzero.network/v2/developers/evm/oapp/overview)
+- [LayerZero V2 OFT Quickstart](https://docs.layerzero.network/v2/developers/evm/oft/quickstart)
+- [LayerZero V2 ONFT Quickstart](https://docs.layerzero.network/v2/developers/evm/onft/quickstart)
+- [Omnichain Queries (LayerZero Read)](https://docs.layerzero.network/v2/developers/evm/lzread/overview)
+- [Omnichain Composers](https://docs.layerzero.network/v2/developers/evm/composer/overview)
+- [Best Practices for Contract Ownership](https://docs.layerzero.network/v2/developers/evm/technical-reference/transfer-ownership)
+
+# Create LZ OApp CLI
+
+- [Quickstart - Create Your First Omnichain App](https://docs.layerzero.network/v2/developers/evm/create-lz-oapp/start)
+- [Project Configuration](https://docs.layerzero.network/v2/developers/evm/create-lz-oapp/project-config)
+- [Deploying Contracts](https://docs.layerzero.network/v2/developers/evm/create-lz-oapp/deploying)
+- [Configuring Contracts](https://docs.layerzero.network/v2/developers/evm/create-lz-oapp/configuring-pathways)
+- [Debugging LayerZero Errors](https://docs.layerzero.network/v2/developers/evm/create-lz-oapp/debugging)
+
+# Troubleshooting
+
+- [Debugging Messages](https://docs.layerzero.network/v2/developers/evm/troubleshooting/debugging-messages)
+- [Error Codes](https://docs.layerzero.network/v2/developers/evm/troubleshooting/error-messages)
+- [Common Errors](https://docs.layerzero.network/v2/developers/solana/troubleshooting/common-errors)
+- [Frequently Asked Questions (FAQ)](https://docs.layerzero.network/v2/developers/solana/troubleshooting/faq)
+
+# LayerZero for Solana Developers
+
+- [LayerZero V2 Solana Programs](https://docs.layerzero.network/v2/developers/solana/overview)
+- [Getting Started with LayerZero V2 on Solana](https://docs.layerzero.network/v2/developers/solana/getting-started)
+- [LayerZero V2 Solana Technical Overview](https://docs.layerzero.network/v2/developers/solana/technical-overview)
+
+# Program Standards
+
+- [LayerZero V2 Solana OApp Reference](https://docs.layerzero.network/v2/developers/solana/oapp/overview)
+- [LayerZero V2 Solana OFT Program](https://docs.layerzero.network/v2/developers/solana/oft/program)
+- [LayerZero V2 Solana OFT Create](https://docs.layerzero.network/v2/developers/solana/oft/account)
+- [LayerZero V2 Solana OFT SDK](https://docs.layerzero.network/v2/developers/solana/oft/sdk)
+
+# Configuration
+
+- [Solana DVN and Executor Configuration](https://docs.layerzero.network/v2/developers/solana/configuration/dvn-executor-config)
+- [Aptos DVN and Executor Configuration](https://docs.layerzero.network/v2/developers/aptos-move/configuration/dvn-executor-config)
+
+# Tooling
+
+- [LayerZero Scan](https://docs.layerzero.network/v2/developers/solana/tooling/layerzeroscan)
+
+# LayerZero for Aptos Move Developers
+
+- [LayerZero V2 Aptos Move Standards](https://docs.layerzero.network/v2/developers/aptos-move/overview)
+
+# Omnichain CLI Toolkit
+
+- [Quickstart - Create Your First Omnichain App](https://docs.layerzero.network/v2/developers/aptos-move/create-lz-oapp/start)
+
+# Contract Modules
+
+- [LayerZero V2 Aptos Move OApp](https://docs.layerzero.network/v2/developers/aptos-move/contract-modules/oapp)
+- [LayerZero V2 Aptos Move OFT](https://docs.layerzero.network/v2/developers/aptos-move/contract-modules/oft)
+
+# LayerZero for Hyperliquid Developers
+
+- [Hyperliquid & LayerZero Composer - Core Concepts](https://docs.layerzero.network/v2/developers/hyperliquid/hyperliquid-concepts)
+- [Deployment Guide - OFT on Hyperliquid with LayerZero Composer](https://docs.layerzero.network/v2/developers/hyperliquid/hyperliquid-oft-deployment)
+- [LayerZero Hyperliquid SDK - Command Reference](https://docs.layerzero.network/v2/developers/hyperliquid/hyperliquid-sdk)
+
+# LayerZero V2 Deployments
+
+- [Deployed Endpoints, Message Libraries, and Executors](https://docs.layerzero.network/v2/deployments/deployed-contracts)
+- [DVN Providers](https://docs.layerzero.network/v2/deployments/dvn-addresses)
+- [Read Data Channels](https://docs.layerzero.network/v2/deployments/read-contracts)
+- [Abstract Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/abstract-mainnet-oft-quickstart)
+- [Animechain Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/animechain-mainnet-oft-quickstart)
+- [Ape Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/ape-mainnet-oft-quickstart)
+- [Arbitrum Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/arbitrum-mainnet-oft-quickstart)
+- [Arbitrum Nova Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/nova-mainnet-oft-quickstart)
+- [Arbitrum Sepolia Testnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/arbitrum-sepolia-testnet-oft-quickstart)
+- [Astar Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/astar-mainnet-oft-quickstart)
+- [Astar zkEVM Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/zkatana-mainnet-oft-quickstart)
+- [Avalanche Fuji Testnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/fuji-testnet-oft-quickstart)
+- [Avalanche Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/avalanche-mainnet-oft-quickstart)
+- [Bahamut Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/bahamut-mainnet-oft-quickstart)
+- [Base Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/base-mainnet-oft-quickstart)
+- [Base Sepolia Testnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/base-sepolia-testnet-oft-quickstart)
+- [Beam Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/beam-mainnet-oft-quickstart)
+- [Berachain Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/bera-mainnet-oft-quickstart)
+- [Bevm Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/bevm-mainnet-oft-quickstart)
+- [Bitlayer Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/bitlayer-mainnet-oft-quickstart)
+- [Blast Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/blast-mainnet-oft-quickstart)
+- [BNB Smart Chain (BSC) Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/bsc-mainnet-oft-quickstart)
+- [BNB Smart Chain (BSC) Testnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/bsc-testnet-oft-quickstart)
+- [BOB Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/bob-mainnet-oft-quickstart)
+- [Bouncebit Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/bouncebit-mainnet-oft-quickstart)
+- [Canto Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/canto-mainnet-oft-quickstart)
+- [Celo Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/celo-mainnet-oft-quickstart)
+- [Codex Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/codex-mainnet-oft-quickstart)
+- [Concrete OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/concrete-mainnet-oft-quickstart)
+- [Conflux eSpace Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/conflux-mainnet-oft-quickstart)
+- [CoreDAO Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/coredao-mainnet-oft-quickstart)
+- [Corn Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/mp1-mainnet-oft-quickstart)
+- [Cronos EVM Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/cronosevm-mainnet-oft-quickstart)
+- [Cronos zkEVM Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/cronoszkevm-mainnet-oft-quickstart)
+- [Cyber Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/cyber-mainnet-oft-quickstart)
+- [Degen Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/degen-mainnet-oft-quickstart)
+- [Dexalot Subnet Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/dexalot-mainnet-oft-quickstart)
+- [DFK Chain OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/dfk-mainnet-oft-quickstart)
+- [DM2 Verse Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/dm2verse-mainnet-oft-quickstart)
+- [DOS Chain Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/dos-mainnet-oft-quickstart)
+- [EDU Chain Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/edu-mainnet-oft-quickstart)
+- [Ethereum Holesky Testnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/holesky-testnet-oft-quickstart)
+- [Ethereum Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/ethereum-mainnet-oft-quickstart)
+- [Ethereum Sepolia Testnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/sepolia-testnet-oft-quickstart)
+- [Etherlink Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/etherlink-mainnet-oft-quickstart)
+- [EVM on Flow Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/flow-mainnet-oft-quickstart)
+- [Fantom Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/fantom-mainnet-oft-quickstart)
+- [Flare Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/flare-mainnet-oft-quickstart)
+- [Fraxtal Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/fraxtal-mainnet-oft-quickstart)
+- [Fuse Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/fuse-mainnet-oft-quickstart)
+- [Glue Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/glue-mainnet-oft-quickstart)
+- [Gnosis Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/gnosis-mainnet-oft-quickstart)
+- [Goat Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/goat-mainnet-oft-quickstart)
+- [Gravity Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/gravity-mainnet-oft-quickstart)
+- [Gunz Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/gunz-mainnet-oft-quickstart)
+- [Harmony Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/harmony-mainnet-oft-quickstart)
+- [Hedera Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/hedera-mainnet-oft-quickstart)
+- [Hemi Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/hemi-mainnet-oft-quickstart)
+- [Homeverse Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/homeverse-mainnet-oft-quickstart)
+- [Horizen EON Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/eon-mainnet-oft-quickstart)
+- [Hubble Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/hubble-mainnet-oft-quickstart)
+- [HyperEVM Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/hyperliquid-mainnet-oft-quickstart)
+- [inEVM Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/bb1-mainnet-oft-quickstart)
+- [Ink Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/ink-mainnet-oft-quickstart)
+- [Iota Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/iota-mainnet-oft-quickstart)
+- [Japan Open Chain Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/joc-mainnet-oft-quickstart)
+- [Kaia Mainnet (formerly Klaytn) OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/klaytn-mainnet-oft-quickstart)
+- [Kava Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/kava-mainnet-oft-quickstart)
+- [Lens Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/lens-mainnet-oft-quickstart)
+- [Lightlink Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/lightlink-mainnet-oft-quickstart)
+- [Linea Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/linea-mainnet-oft-quickstart)
+- [Lisk Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/lisk-mainnet-oft-quickstart)
+- [Loot Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/loot-mainnet-oft-quickstart)
+- [Lyra Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/lyra-mainnet-oft-quickstart)
+- [Manta Pacific Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/manta-mainnet-oft-quickstart)
+- [Mantle Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/mantle-mainnet-oft-quickstart)
+- [Merlin Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/merlin-mainnet-oft-quickstart)
+- [Meter Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/meter-mainnet-oft-quickstart)
+- [Metis Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/metis-mainnet-oft-quickstart)
+- [Mode Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/mode-mainnet-oft-quickstart)
+- [Moonbeam Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/moonbeam-mainnet-oft-quickstart)
+- [Moonriver Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/moonriver-mainnet-oft-quickstart)
+- [Morph Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/morph-mainnet-oft-quickstart)
+- [Near Aurora Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/aurora-mainnet-oft-quickstart)
+- [Nibiru Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/nibiru-mainnet-oft-quickstart)
+- [OKX Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/okx-mainnet-oft-quickstart)
+- [opBNB Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/opbnb-mainnet-oft-quickstart)
+- [Optimism Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/optimism-mainnet-oft-quickstart)
+- [Optimism Sepolia Testnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/optimism-sepolia-testnet-oft-quickstart)
+- [Orderly Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/orderly-mainnet-oft-quickstart)
+- [Otherworld Space Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/space-mainnet-oft-quickstart)
+- [Peaq Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/peaq-mainnet-oft-quickstart)
+- [Plume Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/plumephoenix-mainnet-oft-quickstart)
+- [Polygon Amoy Testnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/amoy-testnet-oft-quickstart)
+- [Polygon Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/polygon-mainnet-oft-quickstart)
+- [Polygon zkEVM Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/zkevm-mainnet-oft-quickstart)
+- [Rari Chain Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/rarible-mainnet-oft-quickstart)
+- [re.al Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/real-mainnet-oft-quickstart)
+- [Reya Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/reya-mainnet-oft-quickstart)
+- [Rootstock Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/rootstock-mainnet-oft-quickstart)
+- [Sanko Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/sanko-mainnet-oft-quickstart)
+- [Scroll Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/scroll-mainnet-oft-quickstart)
+- [Sei Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/sei-mainnet-oft-quickstart)
+- [Shimmer Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/shimmer-mainnet-oft-quickstart)
+- [Skale Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/skale-mainnet-oft-quickstart)
+- [Soneium Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/soneium-mainnet-oft-quickstart)
+- [Sonic Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/sonic-mainnet-oft-quickstart)
+- [Sophon Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/sophon-mainnet-oft-quickstart)
+- [Story Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/story-mainnet-oft-quickstart)
+- [Subtensor EVM Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/subtensorevm-mainnet-oft-quickstart)
+- [Superposition Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/superposition-mainnet-oft-quickstart)
+- [Swell Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/swell-mainnet-oft-quickstart)
+- [Taiko Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/taiko-mainnet-oft-quickstart)
+- [TelosEVM Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/telos-mainnet-oft-quickstart)
+- [Tenet Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/tenet-mainnet-oft-quickstart)
+- [Tiltyard Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/tiltyard-mainnet-oft-quickstart)
+- [Unichain Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/unichain-mainnet-oft-quickstart)
+- [Vana Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/islander-mainnet-oft-quickstart)
+- [Viction Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/tomo-mainnet-oft-quickstart)
+- [Worldchain Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/worldchain-mainnet-oft-quickstart)
+- [X Layer Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/xlayer-mainnet-oft-quickstart)
+- [Xai Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/xai-mainnet-oft-quickstart)
+- [XChain Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/xchain-mainnet-oft-quickstart)
+- [XDC Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/xdc-mainnet-oft-quickstart)
+- [XPLA Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/xpla-mainnet-oft-quickstart)
+- [Zircuit Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/zircuit-mainnet-oft-quickstart)
+- [zkLink Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/zklink-mainnet-oft-quickstart)
+- [zkSync Era Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/zksync-mainnet-oft-quickstart)
+- [zkSync Sepolia Testnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/zksync-sepolia-testnet-oft-quickstart)
+- [Zora Mainnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/zora-mainnet-oft-quickstart)
+- [Berachain Bepolia Testnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/bepolia-testnet-oft-quickstart)
+- [Monad Testnet OFT Quickstart](https://docs.layerzero.network/v2/deployments/evm-chains/monad-testnet-oft-quickstart)
+
+# Build Custom DVNs & Executors
+
+- [Build Decentralized Verifier Networks (DVNs)](https://docs.layerzero.network/v2/workers/off-chain/build-dvns)
+- [Build Executors](https://docs.layerzero.network/v2/workers/off-chain/build-executors)
+
+# Ecosystem Tools
+
+- [Tools Overview](https://docs.layerzero.network/v2/tools/overview)
+- [LayerZero Scan Overview](https://docs.layerzero.network/v2/tools/layerzeroscan/overview)
+- [LayerZero Scan Swagger API](https://docs.layerzero.network/v2/tools/layerzeroscan/api)
+- [LayerZero Endpoint Metadata](https://docs.layerzero.network/v2/tools/endpoint-metadata)
+- [LayerZero Endpoint V2 Examples and Developer Tooling](https://docs.layerzero.network/v2/tools/devtools)
+- [AI Resources](https://docs.layerzero.network/v2/ai-resources)
