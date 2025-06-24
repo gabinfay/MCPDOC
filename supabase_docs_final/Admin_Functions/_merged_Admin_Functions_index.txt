@@ -1,7 +1,0 @@
-The file '_merged_Admin_Functions.md' contains the following merged sections:
-
-create_user()
-delete_user()
-get_user_by_id()
-invite_user_by_email()
-list_users()

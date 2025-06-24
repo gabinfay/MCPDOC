@@ -1,9 +1,0 @@
-The following 7 files were merged into _merged_Admin_Functions.md:
-
-create_user.md
-delete_user.md
-generate_link.md
-get_user_by_id.md
-invite_user_by_email.md
-list_users.md
-update_user_by_id.md

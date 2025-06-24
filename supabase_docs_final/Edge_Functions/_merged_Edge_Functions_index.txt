@@ -1,3 +1,0 @@
-The file '_merged_Edge_Functions.md' contains the following merged sections:
-
-invoke()

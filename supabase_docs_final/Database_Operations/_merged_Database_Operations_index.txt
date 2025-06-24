@@ -1,9 +1,0 @@
-The file '_merged_Database_Operations.md' contains the following merged sections:
-
-Create data: insert()
-Delete data: delete()
-Fetch data: select()
-Modify data: update()
-Postgres functions: rpc()
-Upsert data: upsert()
-from_.update()

@@ -1,3 +1,0 @@
-The following 1 files were merged into _merged_Client_Setup.md:
-
-You_can_initialize_a_new_Supabase_client_using_the_create_client_method.md

@@ -28,28 +28,18 @@ from google.adk.tools.function_tool import FunctionTool
 
 load_dotenv()
 
+# --- Simplified Logging Configuration ---
+logging.basicConfig(
+    force=True, # This removes any existing handlers and configures the root logger
+    stream=sys.stderr,
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# The debug prints for ADK are still useful
 print(f"DEBUG: google.adk version: {getattr(google.adk, '__version__', 'N/A')}", file=sys.stderr)
 print(f"DEBUG: google.adk path: {getattr(google.adk, '__path__', 'N/A')}", file=sys.stderr)
-
-# Configure logging to prevent duplicates
-root_logger = logging.getLogger()
-if not root_logger.handlers:
-    logging.basicConfig(stream=sys.stderr, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
-
-logger = logging.getLogger(__name__)
-# Prevent propagation to root logger to avoid duplicate messages
-logger.propagate = False
-
-# Ensure we don't have duplicate handlers on our specific logger
-if logger.handlers:
-    logger.handlers.clear()
-
-# Add a single handler with our desired format
-handler = logging.StreamHandler(sys.stderr)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-logger.setLevel(logging.INFO)
 
 mcp_server = FastMCP("DocumentationAgentMCPV3") # Updated name for V3
 
@@ -1650,29 +1640,34 @@ async def get_documentation_query_agent_async(current_detailed_index_content: st
     read_files_adk_tool = FunctionTool(read_files)
     logger.info(f"Created ADK tool for 'read_files'. Agent will use DOCS_ROOT_PATH_ABS: {docs_root_path}")
 
-    agent_instruction_template = """You are a highly intelligent Documentation Assistant.
-Your primary task is to answer user questions based on the "DETAILED Documentation Index" provided below.
-This index contains a list of available markdown files, their original URLs, main topics, major sections, and a summary for each.
+    # Split the template to avoid using .format() on user-controlled content.
+    agent_instruction_template_part1 = """You are a highly intelligent Documentation Assistant. Your goal is to answer user questions by intelligently navigating the provided documentation files.
 
-To answer a question, you MUST follow these steps:
-1.  Carefully analyze the user's query for keywords, topics, and specific details they are asking about.
-2.  Thoroughly review the "DETAILED Documentation Index" below. For each file entry (which includes its path, URL, summary, topics, and sections), assess its relevance to the user's query. Pay close attention to the summaries and listed topics/sections.
-3.  Identify the TOP 1-3 MOST RELEVANT file(s) based on this detailed comparison.
-4.  You MUST use the 'read_files' tool to read the content of these most relevant file(s). Provide the exact relative file paths as listed in the index (e.g., 'path/to/file1.md').
-5.  After reading the file(s) using the tool, formulate your answer based *only* on the content you have read from those specific files and the information in the detailed index.
-6.  If, after reviewing the detailed index, no file appears sufficiently relevant, or if after reading relevant files you still cannot find the answer, then state that you could not find the information in the provided documents.
-7.  When providing an answer, if possible, cite the source file(s) you used (e.g., "According to 'path/to/file.md', ...").
+To answer a question, you MUST follow this workflow:
+1.  **Analyze the Query**: First, understand what the user is asking for.
+2.  **Consult the Index**: Review the "DETAILED Documentation Index" to identify the **TOP 1-3 MOST RELEVANT** file(s) based on the user's query. Pay close attention to summaries and topics.
+3.  **Read Files and Formulate Answer**:
+    a. Call the `read_files` tool to read the content of the most promising file(s) you identified.
+    b. After reading, assess if you have enough information to answer the query. If not, you are allowed to call `read_files` again on **different** relevant files.
+    c. **CRITICAL RULE**: You must not call `read_files` on the *same file path* more than once in a single turn. This is to prevent getting stuck in a loop.
+    d. Once you have sufficient information from all the files you've read, synthesize a comprehensive final answer.
+4.  **Cite Your Sources**: When providing the answer, cite the source file(s) you used (e.g., "According to 'path/to/file.md', ...").
+5.  **Be Honest**: If you cannot find the answer after your search, state that clearly.
 
 Do not invent information. Your knowledge is strictly limited to the documents you read via the 'read_files' tool and the provided DETAILED Documentation Index.
 Do not attempt to access external URLs or browse the web.
 
 DETAILED Documentation Index:
 =============================
-{knowledge_base_placeholder}
 """
-    agent_instruction = agent_instruction_template.format(
-        knowledge_base_placeholder=current_detailed_index_content
-    )
+    # To prevent the ADK's internal templating engine from misinterpreting
+    # braces in the documentation content (like '{address}') as variables,
+    # we insert a zero-width space. This is invisible to the LLM but breaks
+    # the ADK's internal regex-based variable substitution.
+    safe_content = current_detailed_index_content.replace("{", "{\u200b").replace("}", "\u200b}")
+
+    agent_instruction = agent_instruction_template_part1 + safe_content
+    
     logger.info("Attempting to create LlmAgent for documentation queries with detailed index.")
     return LlmAgent(
         name="documentation_query_agent_v3", 

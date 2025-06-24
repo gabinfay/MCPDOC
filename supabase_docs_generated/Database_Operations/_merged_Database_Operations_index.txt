@@ -1,9 +1,0 @@
-The following 7 files were merged into _merged_Database_Operations.md:
-
-Create_data_insert.md
-Delete_data_delete.md
-Fetch_data_select.md
-Modify_data_update.md
-Postgres_functions_rpc.md
-Upsert_data_upsert.md
-from_update.md

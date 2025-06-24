@@ -1,9 +1,0 @@
-The file '_merged_Multi_Factor_Authentication.md' contains the following merged sections:
-
-mfa.challenge()
-mfa.challenge_and_verify()
-mfa.delete_factor()
-mfa.enroll()
-mfa.get_authenticator_assurance_level()
-mfa.unenroll()
-mfa.verify()

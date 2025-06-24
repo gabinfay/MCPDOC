@@ -1,7 +1,0 @@
-The file '_merged_Realtime.md' contains the following merged sections:
-
-broadcastMessage()
-getChannels()
-on().subscribe()
-removeAllChannels()
-removeChannel()

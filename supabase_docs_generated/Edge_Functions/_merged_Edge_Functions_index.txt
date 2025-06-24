@@ -1,3 +1,0 @@
-The following 1 files were merged into _merged_Edge_Functions.md:
-
-invoke.md
