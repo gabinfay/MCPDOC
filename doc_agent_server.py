@@ -11,6 +11,9 @@ import re # For regular expressions
 import openai # Added for V3
 import json # For state persistence
 import time # For scraping delays
+import tiktoken
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any
 from bs4 import BeautifulSoup # For HTML parsing in scraping
 from markdownify import markdownify as md # For converting HTML to markdown
 from playwright.async_api import async_playwright # For JavaScript-heavy pages
@@ -60,6 +63,25 @@ BASE_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".doc_
 INDEXED_DOCS = {} # {url: {'cache_dir': str, 'project_name': str, 'detailed_index_content': str, 'master_index_content': str}}
 CURRENT_ACTIVE_DOC = None # Currently active documentation source URL
 INDEXED_DOCS_STATE_FILE = os.path.join(BASE_CACHE_DIR, ".indexed_docs_state.json")
+
+# --- Dataclasses for Single Pre-formatted File Processor ---
+@dataclass
+class DocSection:
+    """Represents a single documentation section parsed from a large markdown file."""
+    title: str
+    content: str
+    category: str
+    token_count: int
+
+@dataclass
+class FinalDoc:
+    """Represents a final documentation file to be written to disk after processing."""
+    category: str
+    filename: str
+    content: str
+    original_titles: List[str] = field(default_factory=list)
+    is_merged: bool = False
+# --- End of dataclasses ---
 
 # --- End of global variables ---
 
@@ -2081,6 +2103,199 @@ The documentation has been set as the active source and is ready for querying.""
         traceback_str = traceback.format_exc()
         logging.error(f"Full traceback: {traceback_str}")
         return f"ERROR: {error_msg}\nDetails: {str(e)}\nType: {type(e).__name__}"
+
+
+# --- New Tool for Pre-formatted Markdown Files ---
+
+def _categorize_section_from_title(title: str) -> str:
+    """
+    Assigns a category to a section based on keywords in its title.
+    NOTE: This is an example categorization based on Supabase docs.
+    It may need to be adapted for other documentation sets.
+    """
+    title_lower = title.lower()
+    categories = {
+        "Multi_Factor_Authentication": ["mfa."],
+        "Admin_Functions": ["get_user_by_id", "list_users", "create_user", "delete_user", "invite_user"],
+        "Authentication": ["sign_up", "sign_in", "sign_out", "reset_password", "verify_otp", "get_session", "refresh_session", "get_user"],
+        "Database_Operations": ["select()", "insert()", "update()", "upsert()", "delete()", "rpc()"],
+        "Filters": ["eq()", "neq()", "gt()", "gte()", "lt()", "lte()", "like()", "ilike()", "is_()", "in_()", "filter()"],
+        "Modifiers": ["order()", "limit()", "range()", "single()", "maybe_single()", "csv()"],
+        "Storage": ["bucket", "upload", "download", "storage", "from_.", "signed_url"],
+        "Edge_Functions": ["invoke()", "functions"],
+        "Realtime": ["subscribe", "channel", "broadcast"],
+        "Client_Setup": ["create_client", "initialize", "client"],
+    }
+    for category, keywords in categories.items():
+        if any(keyword in title_lower for keyword in keywords):
+            return category
+    return "Utilities"
+
+@mcp_server.tool()
+async def index_preformatted_markdown(
+    project_name: str,
+    file_path: Optional[str] = None,
+    url: Optional[str] = None,
+    section_marker: str = "# Python Reference",
+    token_threshold: int = 10000
+) -> str:
+    """
+    Parses, consolidates, and indexes a single large, pre-formatted markdown file, either from a local path or a URL.
+
+    🎯 USE THIS WHEN: You have a single markdown file (like supabase.txt) containing the entire documentation,
+    with content divided by a consistent repeating header (the 'section_marker'). Provide either a local file path OR a direct URL to the raw file.
+
+    Args:
+        project_name: A unique name for this documentation project.
+        file_path: (Optional) The local path to the single markdown file.
+        url: (Optional) The direct URL to the raw markdown file.
+        section_marker: The exact markdown string that separates major sections.
+        token_threshold: The token count below which a category's files will be merged.
+    """
+    global INDEXED_DOCS, CURRENT_ACTIVE_DOC, BASE_CACHE_DIR
+    logging.info(f"MCP Tool 'index_preformatted_markdown' called for project: {project_name}")
+
+    # --- 1. Validate inputs and get content ---
+    if not (file_path or url):
+        return "ERROR: You must provide either 'file_path' or 'url'."
+    if file_path and url:
+        return "ERROR: You must provide either 'file_path' or 'url', not both."
+
+    source_content = ""
+    source_display_name = ""
+
+    if url:
+        source_identifier = url
+        source_display_name = url
+        logging.info(f"Fetching content from URL: {url}")
+        async with httpx.AsyncClient() as client:
+            content = await download_file(url, client)
+            if content is None:
+                return f"ERROR: Failed to download content from URL: {url}"
+            source_content = content
+    else:  # This means file_path is provided
+        source_identifier = f"local_file::{file_path}"
+        source_display_name = file_path
+        logging.info(f"Reading content from local file: {file_path}")
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            return f"ERROR: Input file not found or is not a file: {file_path}"
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                source_content = f.read()
+        except Exception as e:
+            return f"ERROR: Failed to read local file '{file_path}': {e}"
+
+    if not project_name:
+        return "ERROR: A unique 'project_name' is required."
+
+    try:
+        tokenizer = tiktoken.get_encoding("gpt2")
+    except Exception:
+        tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
+
+    logging.info(f"Using source identifier: {source_identifier}")
+
+    # --- 2. Set up cache directory ---
+    unique_cache_dir_name = get_unique_cache_dir_name(project_name, source_identifier)
+    cache_dir = os.path.join(BASE_CACHE_DIR, unique_cache_dir_name)
+    os.makedirs(cache_dir, exist_ok=True)
+    create_url_marker_file(cache_dir, source_identifier)
+
+    # --- 3. Parse file into categorized sections ---
+    logging.info(f"Parsing and categorizing content from '{source_display_name}'...")
+    sections_by_category: Dict[str, List[DocSection]] = {}
+    try:
+        lines = source_content.split('\n')
+        i = 0
+        while i < len(lines):
+            if lines[i].strip() == section_marker:
+                title, title_line_idx = "", -1
+                for j in range(i + 1, min(i + 10, len(lines))):
+                    candidate = lines[j].strip()
+                    if candidate and not candidate.startswith('#'):
+                        title, title_line_idx = candidate, j
+                        break
+                
+                if title:
+                    end_line_idx = len(lines)
+                    for k in range(i + 1, len(lines)):
+                        if lines[k].strip() == section_marker:
+                            end_line_idx = k
+                            break
+                    
+                    content = '\n'.join(lines[title_line_idx + 1:end_line_idx]).strip()
+                    category = _categorize_section_from_title(title)
+                    token_count = len(tokenizer.encode(content))
+                    
+                    section = DocSection(title, content, category, token_count)
+                    if category not in sections_by_category:
+                        sections_by_category[category] = []
+                    sections_by_category[category].append(section)
+                    i = end_line_idx
+                else: i += 1
+            else: i += 1
+        logging.info(f"Parsed {sum(len(s) for s in sections_by_category.values())} sections into {len(sections_by_category)} categories.")
+    except Exception as e:
+        return f"ERROR: Failed to parse content from '{source_display_name}': {e}"
+
+    # --- 4. Consolidate small categories ---
+    logging.info("Consolidating small categories...")
+    final_docs: List[FinalDoc] = []
+    for category, sections in sections_by_category.items():
+        total_tokens = sum(s.token_count for s in sections)
+        if 0 < total_tokens <= token_threshold:
+            merged_content = [f"# Consolidated Documentation: {category.replace('_', ' ')}\n\nThis file merges {len(sections)} sections.\n"]
+            original_titles = [s.title for s in sections]
+            for sec in sections:
+                merged_content.append(f"\n---\n\n## --- {sec.title} ---\n\n{sec.content}")
+            final_docs.append(FinalDoc(category, f"_merged_{category}.md", "".join(merged_content), original_titles, True))
+        else:
+            for sec in sections:
+                safe_filename = re.sub(r'[^\w\s-]', '', sec.title)
+                safe_filename = re.sub(r'[\s._()]+', '_', safe_filename).strip('_-') + ".md"
+                final_docs.append(FinalDoc(sec.category, safe_filename, f"# {sec.title}\n\n{sec.content}", [sec.title]))
+
+    # --- 5. Write processed files to cache ---
+    logging.info(f"Writing {len(final_docs)} processed files to cache: {cache_dir}")
+    downloaded_files_map = {}
+    for doc in final_docs:
+        category_path = os.path.join(cache_dir, doc.category)
+        os.makedirs(category_path, exist_ok=True)
+        file_path_abs = os.path.join(category_path, doc.filename)
+        with open(file_path_abs, 'w', encoding='utf-8') as f:
+            f.write(doc.content)
+        
+        downloaded_files_map[file_path_abs] = f"source://{project_name}/{doc.category}/{doc.filename}"
+
+        if doc.is_merged:
+            index_path = os.path.join(category_path, f"{os.path.splitext(doc.filename)[0]}_index.txt")
+            index_content = f"The file '{doc.filename}' contains:\n\n" + "\n".join(sorted(doc.original_titles))
+            with open(index_path, 'w', encoding='utf-8') as f:
+                f.write(index_content)
+
+    # --- 6. Generate detailed index and update state ---
+    logging.info("Generating detailed index with AI summaries...")
+    detailed_index_path = await generate_detailed_index_async(cache_dir, downloaded_files_map)
+    
+    if detailed_index_path and os.path.exists(detailed_index_path):
+        detailed_index_content = open(detailed_index_path, 'r', encoding='utf-8').read()
+    else:
+        detailed_index_content = "Error: Detailed index could not be generated."
+
+    master_index_content = f"# Documentation for {project_name}\n\nIndexed from: {source_display_name}"
+
+    INDEXED_DOCS[source_identifier] = {
+        'cache_dir': cache_dir,
+        'project_name': project_name,
+        'detailed_index_content': detailed_index_content,
+        'master_index_content': master_index_content,
+        'scraping_stats': {'source': 'preformatted_markdown', 'file_path': file_path, 'url': url}
+    }
+    CURRENT_ACTIVE_DOC = source_identifier
+    save_indexed_docs_state()
+
+    return f"Successfully indexed pre-formatted markdown from '{source_display_name}' for project '{project_name}'. Set as active with identifier '{source_identifier}'."
+
 
 async def main_async():
     global DOCS_ROOT_PATH_ABS, MASTER_INDEX_CONTENT, DETAILED_INDEX_CONTENT, INDEXED_DOCS, CURRENT_ACTIVE_DOC

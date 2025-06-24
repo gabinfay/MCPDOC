@@ -1,0 +1,23 @@
+The following 21 files were merged into _merged_Authentication.md:
+
+exchange_code_for_session.md
+get_session.md
+get_user.md
+get_user_identities.md
+link_identity.md
+reauthenticate.md
+refresh_session.md
+resend.md
+reset_password_for_email.md
+set_session.md
+sign_in_anonymously.md
+sign_in_with_id_token.md
+sign_in_with_oauth.md
+sign_in_with_otp.md
+sign_in_with_password.md
+sign_in_with_sso.md
+sign_out.md
+sign_up.md
+unlink_identity.md
+update_user.md
+verify_otp.md

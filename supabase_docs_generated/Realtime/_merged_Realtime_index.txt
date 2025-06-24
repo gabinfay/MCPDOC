@@ -1,0 +1,7 @@
+The following 5 files were merged into _merged_Realtime.md:
+
+broadcastMessage.md
+getChannels.md
+onsubscribe.md
+removeAllChannels.md
+removeChannel.md

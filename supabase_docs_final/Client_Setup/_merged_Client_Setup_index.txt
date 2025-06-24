@@ -1,0 +1,3 @@
+The file '_merged_Client_Setup.md' contains the following merged sections:
+
+You can initialize a new Supabase client using the `create_client()` method.

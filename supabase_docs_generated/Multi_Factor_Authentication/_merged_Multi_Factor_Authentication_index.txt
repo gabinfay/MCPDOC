@@ -1,0 +1,9 @@
+The following 7 files were merged into _merged_Multi_Factor_Authentication.md:
+
+mfachallenge.md
+mfachallenge_and_verify.md
+mfadelete_factor.md
+mfaenroll.md
+mfaget_authenticator_assurance_level.md
+mfaunenroll.md
+mfaverify.md
