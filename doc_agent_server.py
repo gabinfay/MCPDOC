@@ -4,6 +4,7 @@ from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 import asyncio
 import os
+import shutil
 import hashlib # For generating unique cache directory names
 import httpx # For asynchronous HTTP requests
 from urllib.parse import urlparse, urljoin, unquote # For URL manipulation
@@ -1887,6 +1888,52 @@ async def set_active_documentation(url: str) -> str:
     save_indexed_docs_state()
     
     success_msg = f"Set active documentation source to: {url} (Project: '{project_name}')"
+    logging.info(success_msg)
+    return success_msg
+
+
+@mcp_server.tool()
+async def remove_documentation(url: str) -> str:
+    """
+    Removes an indexed documentation source and deletes its cached files.
+
+    Args:
+        url: The URL of the documentation source to remove.
+    """
+    global INDEXED_DOCS, CURRENT_ACTIVE_DOC
+    
+    logging.info(f"MCP Tool 'remove_documentation' called for URL: {url}")
+    
+    if url not in INDEXED_DOCS:
+        available_urls = ", ".join(INDEXED_DOCS.keys()) if INDEXED_DOCS else "None"
+        return f"ERROR: Documentation source '{url}' not found. Available sources: {available_urls}"
+        
+    doc_info = INDEXED_DOCS[url]
+    cache_dir_to_remove = doc_info.get('cache_dir')
+    project_name = doc_info.get('project_name', 'Unknown')
+
+    if not cache_dir_to_remove or not os.path.exists(cache_dir_to_remove):
+        logging.warning(f"Cache directory for {url} not found at {cache_dir_to_remove}, but removing from index anyway.")
+    else:
+        try:
+            shutil.rmtree(cache_dir_to_remove)
+            logging.info(f"Successfully removed cache directory: {cache_dir_to_remove}")
+        except Exception as e:
+            logging.error(f"Failed to remove cache directory {cache_dir_to_remove}: {e}", exc_info=True)
+            return f"ERROR: Failed to delete cache directory for '{url}': {e}. Please check file permissions."
+
+    # Remove from index
+    del INDEXED_DOCS[url]
+    
+    # If it was the active doc, deactivate it
+    if CURRENT_ACTIVE_DOC == url:
+        CURRENT_ACTIVE_DOC = None
+        logging.info(f"Deactivated documentation source '{url}' as it was removed.")
+        
+    # Save the updated state
+    save_indexed_docs_state()
+    
+    success_msg = f"Successfully removed documentation source '{project_name}' ({url}) and its cached files."
     logging.info(success_msg)
     return success_msg
 
